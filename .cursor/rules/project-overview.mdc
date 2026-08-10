@@ -1,0 +1,44 @@
+---
+description: CollabTeras のプロジェクト概要と技術スタック
+alwaysApply: true
+---
+
+# CollabTeras（コラボテラス）
+
+近隣エリアの相性が良い店舗を Google Maps / Web から自動抽出し、AI が「コラボ提案文」を
+生成・管理する B2B SaaS。利用者は店舗オーナー。
+
+## 技術スタック
+
+- Next.js 15（App Router, TypeScript）/ React 19
+  - `cookies()` と page の `params` / `searchParams` は非同期。`await` すること
+  - フォームの状態は `react` の `useActionState` を使う（`useFormState` は使わない）
+- Tailwind CSS + Shadcn/ui
+- Supabase（PostgreSQL, Row Level Security）
+- OpenAI API (GPT-4o) / Google Gemini API
+- Stripe Billing
+- Lucide React
+
+## ディレクトリの役割
+
+| パス | 役割 |
+| --- | --- |
+| `app/(auth)/` | ログイン・新規登録 |
+| `app/(dashboard)/` | ログイン後の管理画面（`layout.tsx` でセッション検証） |
+| `components/ui/` | Shadcn/ui の primitive。原則として手を入れない |
+| `components/features/` | 業務ロジックを含むコンポーネント |
+| `lib/supabase/` | `client`（ブラウザ）/ `server`（RSC・Actions）/ `admin`（service role） |
+| `lib/queries/` | サーバー側のデータ取得関数 |
+| `lib/google/` | Places API（近隣検索）と Geocoding API |
+| `lib/ai/` | AI プロバイダ抽象層（OpenAI / Gemini）と相性スコアリング |
+| `lib/stripe/` | Stripe クライアント、プランと Price の対応、購読状態の同期 |
+| `types/database.ts` | Supabase スキーマ型（自動生成、手で編集しない） |
+| `types/index.ts` | ドメイン型・Server Action の入出力契約 |
+| `supabase/migrations/` | SQL マイグレーション |
+
+## 用語
+
+- **組織 (organization)**: 契約テナント。請求とメンバー管理の単位
+- **自店舗 (store)**: 提案の発信元となるお店
+- **候補 (candidate)**: 近隣から抽出したコラボ相手の候補
+- **提案 (proposal)**: AI が生成したコラボ提案文とその進捗

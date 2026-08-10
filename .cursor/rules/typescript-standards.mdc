@@ -1,0 +1,37 @@
+---
+description: TypeScript の型定義に関する規約
+globs: **/*.{ts,tsx}
+alwaysApply: false
+---
+
+# TypeScript 規約
+
+`any` は禁止。型が不明な場合は `unknown` で受けてから絞り込む。
+
+```typescript
+// ❌ BAD
+function parse(payload: any) {
+  return payload.items;
+}
+
+// ✅ GOOD
+function parse(payload: unknown): PlaceSummary[] {
+  return placeSummarySchema.array().parse(payload);
+}
+```
+
+DB の行型は自前で書かず `types/database.ts` のヘルパーを経由する。
+
+```typescript
+// ❌ BAD
+interface Store { id: string; name: string }
+
+// ✅ GOOD
+import type { Tables } from '@/types/database';
+type Store = Tables<'stores'>;
+```
+
+- 外部 API・フォーム入力など境界を越える値は zod で検証してから型を確定させる。
+- Server Action の戻り値は `ActionResult<T>` に揃え、例外ではなく値でエラーを返す。
+- `tsconfig.json` は `strict` と `noUncheckedIndexedAccess` が有効。配列アクセスの
+  結果は `undefined` を含むため、非 null アサーション（`!`）ではなく明示的に分岐する。

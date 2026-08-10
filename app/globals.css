@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 200 20% 12%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 200 20% 12%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 200 20% 12%;
+
+    --primary: 174 72% 28%;
+    --primary-foreground: 174 60% 97%;
+
+    --secondary: 190 20% 96%;
+    --secondary-foreground: 200 20% 20%;
+
+    --muted: 190 20% 96%;
+    --muted-foreground: 200 10% 45%;
+
+    --accent: 38 92% 95%;
+    --accent-foreground: 26 84% 28%;
+
+    --destructive: 0 72% 45%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 195 16% 90%;
+    --input: 195 16% 90%;
+    --ring: 174 72% 28%;
+
+    --radius: 0.625rem;
+
+    /* 日本語の可読性を優先した OS 標準フォントスタック */
+    --font-sans:
+      -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Hiragino Kaku Gothic ProN',
+      'Noto Sans JP', 'Yu Gothic UI', Meiryo, sans-serif;
+  }
+
+  .dark {
+    --background: 200 24% 8%;
+    --foreground: 190 20% 96%;
+
+    --card: 200 22% 11%;
+    --card-foreground: 190 20% 96%;
+
+    --popover: 200 22% 11%;
+    --popover-foreground: 190 20% 96%;
+
+    --primary: 174 60% 45%;
+    --primary-foreground: 200 30% 8%;
+
+    --secondary: 200 18% 17%;
+    --secondary-foreground: 190 20% 96%;
+
+    --muted: 200 18% 17%;
+    --muted-foreground: 195 12% 62%;
+
+    --accent: 26 40% 20%;
+    --accent-foreground: 38 92% 85%;
+
+    --destructive: 0 62% 45%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 200 16% 20%;
+    --input: 200 16% 20%;
+    --ring: 174 60% 45%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-feature-settings: 'palt' 1;
+  }
+}

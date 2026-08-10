@@ -1,0 +1,32 @@
+---
+description: Supabase / データ取得と更新の規約
+globs: '{app,lib}/**/*.{ts,tsx}'
+alwaysApply: false
+---
+
+# データアクセス規約
+
+取得は Server Components、更新は Server Actions を基本とする。Route Handler は
+Webhook と OAuth コールバックに限る。
+
+ユーザー起点の処理では必ず `lib/supabase/server.ts` を使い、RLS を効かせる。
+
+```typescript
+// ❌ BAD: RLS を迂回してしまう
+import { createAdminClient } from '@/lib/supabase/admin';
+const supabase = createAdminClient();
+
+// ✅ GOOD
+import { createClient } from '@/lib/supabase/server';
+const supabase = createClient();
+```
+
+`lib/supabase/admin.ts`（service role）は Stripe Webhook などログインユーザーが
+存在しない文脈に限って使う。
+
+- 一覧取得のクエリは `lib/queries/` に関数として切り出し、ページから直接
+  Supabase を叩かない。
+- 業務テーブルは必ず `organization_id` を持たせ、クエリでも明示的に絞り込む
+  （RLS と二重で守る）。
+- スキーマを変更したら、同じコミットで `supabase/migrations/` の SQL と
+  `types/database.ts` の両方を更新する。

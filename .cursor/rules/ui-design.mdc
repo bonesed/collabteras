@@ -1,0 +1,36 @@
+---
+description: UI コンポーネントとデザインの規約
+globs: '{app,components}/**/*.tsx'
+alwaysApply: false
+---
+
+# UI・デザイン規約
+
+店舗オーナーが迷わず使える、シンプルで洗練された B2B ダッシュボードを目指す。
+PC 操作をメインに据えつつ、スマホ・タブレットでも破綻しないこと。
+
+## コンポーネントの置き場所
+
+- `components/ui/`: Shadcn/ui の primitive。CLI が生成したものを原則そのまま使う
+- `components/features/<機能名>/`: 業務ロジックを含むコンポーネント
+- Client Component にするのは、状態・イベント・ブラウザ API が必要なときだけ
+
+## 配色
+
+セマンティックなカラー変数を使い、Tailwind の生の色は使わない。
+
+```tsx
+// ❌ BAD
+<div className="bg-white text-gray-900 border-gray-200">
+
+// ✅ GOOD
+<div className="bg-card text-card-foreground border">
+```
+
+例外は、ステータス表示など意味と色が 1:1 で結びつくバッジのみ。
+
+## その他
+
+- 文言は日本語。数値には `tabular-nums` を当てて桁を揃える
+- 空状態は `EmptyState`、未実装の画面は `ComingSoon` を使う
+- 装飾目的のアイコンには `aria-hidden` を付ける

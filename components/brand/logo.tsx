@@ -1,5 +1,6 @@
-import { Handshake } from 'lucide-react';
+import Image from 'next/image';
 
+import { APP_NAME } from '@/lib/constants';
 import { cn } from '@/lib/utils';
 
 interface LogoProps {
@@ -10,9 +11,16 @@ interface LogoProps {
 export function Logo({ className, showWordmark = true }: LogoProps) {
   return (
     <span className={cn('flex items-center gap-2', className)}>
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-        <Handshake className="size-4" aria-hidden />
-      </span>
+      <Image
+        src="/logo.png"
+        // ワードマークを併記する場合、画像は装飾扱いにして読み上げの重複を避ける
+        alt={showWordmark ? '' : APP_NAME}
+        // 実寸(512px)ではなく表示サイズを渡し、小さい最適化画像だけを配信させる
+        width={36}
+        height={36}
+        priority
+        className="h-9 w-auto shrink-0 rounded-lg bg-white"
+      />
       {showWordmark ? (
         <span className="text-base font-semibold tracking-tight">
           Collab<span className="text-primary">Teras</span>

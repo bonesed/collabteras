@@ -51,17 +51,10 @@ export default function LandingPage() {
           <span className="rounded-full border bg-accent px-3 py-1 text-xs font-medium text-accent-foreground">
             近隣店舗コラボの、最初の一歩を自動化
           </span>
-          <h1 className="max-w-3xl text-balance text-3xl font-bold leading-tight tracking-tight sm:text-4xl md:text-5xl md:leading-tight">
-            <span className="block">
-              相性の良い近隣店を
-              <br className="sm:hidden" />
-              AIが自動リサーチ。
-            </span>
-            <span className="block">
-              コラボ企画と提案文を、
-              <br className="sm:hidden" />
-              <span className="text-primary">1分で作成。</span>
-            </span>
+          <h1 className="max-w-3xl text-balance text-4xl font-bold tracking-tight md:text-5xl">
+            隣のお店との「一緒に何かやりませんか」を、
+            <br className="hidden md:inline" />
+            AI が見つけて、書く。
           </h1>
           <p className="max-w-2xl text-pretty text-base leading-relaxed text-muted-foreground md:text-lg">
             {APP_NAME} は、徒歩圏にある相性の良い店舗を自動で洗い出し、

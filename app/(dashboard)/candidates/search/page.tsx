@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { notFound, redirect } from 'next/navigation';
 
 import { runNearbySearch } from '@/app/(dashboard)/candidates/actions';
@@ -13,8 +14,9 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { requireSessionContext } from '@/lib/auth';
-import { JOB_STATUS_LABEL_MAP, PLANS } from '@/lib/constants';
+import { JOB_STATUS_LABEL_MAP } from '@/lib/constants';
 import { formatDateTime } from '@/lib/format';
+import { getOrganizationPlan } from '@/lib/queries/organizations';
 import {
   countSearchJobsThisMonth,
   listRecentSearchJobs,
@@ -35,22 +37,26 @@ export default async function CandidateSearchPage({
 }: SearchPageProps) {
   const { store: storeId } = await searchParams;
   const { organization } = await requireSessionContext();
+  const { organization: latestOrganization, limits } = await getOrganizationPlan(
+    organization.id,
+  );
 
   if (storeId === undefined) {
     redirect('/candidates');
   }
 
-  const store = await getStore(organization.id, storeId);
+  const store = await getStore(latestOrganization.id, storeId);
   if (store === null) {
     notFound();
   }
 
   const [jobs, usedThisMonth] = await Promise.all([
-    listRecentSearchJobs(organization.id, store.id),
-    countSearchJobsThisMonth(organization.id),
+    listRecentSearchJobs(latestOrganization.id, store.id),
+    countSearchJobsThisMonth(latestOrganization.id),
   ]);
 
-  const monthlyLimit = PLANS[organization.plan].limits.monthlySearches;
+  const monthlyLimit = limits.monthlySearches;
+  const atLimit = usedThisMonth >= monthlyLimit;
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -64,7 +70,7 @@ export default async function CandidateSearchPage({
           <CardTitle className="flex items-center justify-between text-base">
             抽出条件
             <span className="text-sm font-normal text-muted-foreground tabular-nums">
-              今月 {usedThisMonth} / {monthlyLimit} 回
+              今月 {usedThisMonth} / {monthlyLimit} 件
             </span>
           </CardTitle>
           <CardDescription>
@@ -72,11 +78,20 @@ export default async function CandidateSearchPage({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <NearbySearchForm
-            storeId={store.id}
-            defaultRadiusMeters={800}
-            action={runNearbySearch}
-          />
+          {atLimit ? (
+            <p className="rounded-lg border bg-accent px-4 py-3 text-sm text-accent-foreground">
+              今月の近隣抽出の上限（{monthlyLimit} 件）に達しています。
+              <Link href="/settings/billing" className="ml-1 font-medium underline">
+                プランを変更する
+              </Link>
+            </p>
+          ) : (
+            <NearbySearchForm
+              storeId={store.id}
+              defaultRadiusMeters={800}
+              action={runNearbySearch}
+            />
+          )}
         </CardContent>
       </Card>
 

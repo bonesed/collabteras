@@ -33,6 +33,26 @@ export async function listCandidatesForPipeline(
   return data;
 }
 
+/** CSV 出力用。カンバンの 100 件制限はかけず、その店舗の候補をすべて返す。 */
+export async function listCandidatesForExport(
+  organizationId: string,
+  storeId: string,
+): Promise<Candidate[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('candidates')
+    .select('*')
+    .eq('organization_id', organizationId)
+    .eq('store_id', storeId)
+    .order('compatibility_score', { ascending: false, nullsFirst: false });
+
+  if (error !== null) {
+    throw new Error(`コラボ候補の取得に失敗しました: ${error.message}`);
+  }
+
+  return data;
+}
+
 export async function getCandidate(
   organizationId: string,
   candidateId: string,

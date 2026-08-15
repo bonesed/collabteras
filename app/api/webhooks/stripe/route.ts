@@ -1,3 +1,4 @@
+import { revalidatePath } from 'next/cache';
 import { NextResponse } from 'next/server';
 import type Stripe from 'stripe';
 
@@ -51,6 +52,14 @@ export async function POST(request: Request) {
   return NextResponse.json({ received: true });
 }
 
+async function syncAndRevalidate(
+  subscription: Stripe.Subscription,
+): Promise<void> {
+  await syncSubscription(subscription);
+  // ダッシュボード全体がプラン表示を持つため、layout から再検証する。
+  revalidatePath('/', 'layout');
+}
+
 async function handleEvent(stripe: Stripe, event: Stripe.Event): Promise<void> {
   switch (event.type) {
     case 'checkout.session.completed': {
@@ -60,14 +69,16 @@ async function handleEvent(stripe: Stripe, event: Stripe.Event): Promise<void> {
       }
 
       // Checkout のセッションには課金項目の期間が入らないため、引き直す。
-      await syncSubscription(await stripe.subscriptions.retrieve(subscriptionId));
+      await syncAndRevalidate(
+        await stripe.subscriptions.retrieve(subscriptionId),
+      );
       return;
     }
 
     case 'customer.subscription.created':
     case 'customer.subscription.updated':
     case 'customer.subscription.deleted': {
-      await syncSubscription(event.data.object);
+      await syncAndRevalidate(event.data.object);
       return;
     }
 

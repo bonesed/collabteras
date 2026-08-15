@@ -2,6 +2,7 @@ import 'server-only';
 
 import { redirect } from 'next/navigation';
 
+import { getOrganization } from '@/lib/queries/organizations';
 import { createClient } from '@/lib/supabase/server';
 import type { SessionContext } from '@/types';
 
@@ -42,7 +43,7 @@ export async function requireSessionContext(): Promise<SessionContext> {
 
   const { data: membership, error: membershipError } = await supabase
     .from('organization_members')
-    .select('role, organizations(*)')
+    .select('role, organization_id')
     .eq('user_id', user.id)
     .order('created_at', { ascending: true })
     .limit(1)
@@ -52,13 +53,16 @@ export async function requireSessionContext(): Promise<SessionContext> {
     throw new Error(`所属組織の取得に失敗しました: ${membershipError.message}`);
   }
 
-  if (membership === null || membership.organizations === null) {
+  if (membership === null) {
     redirect('/onboarding');
   }
 
+  // プランは Webhook で更新されるため、入れ子取得ではなく組織テーブルを直接読む。
+  const organization = await getOrganization(membership.organization_id);
+
   return {
     profile,
-    organization: membership.organizations,
+    organization,
     role: membership.role,
   };
 }

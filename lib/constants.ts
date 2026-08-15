@@ -121,6 +121,7 @@ export const PLANS: Readonly<Record<PlanTier, PlanDefinition>> = {
       monthlySearches: 20,
       monthlyProposals: 5,
       maxMembers: 1,
+      canExportCsv: false,
     },
     features: ['店舗登録 1 件', '検索 月 20 件', '提案文生成 月 5 通'],
   },
@@ -134,6 +135,7 @@ export const PLANS: Readonly<Record<PlanTier, PlanDefinition>> = {
       monthlySearches: 100,
       monthlyProposals: 30,
       maxMembers: 3,
+      canExportCsv: false,
     },
     features: [
       '検索 月 100 件',
@@ -152,6 +154,7 @@ export const PLANS: Readonly<Record<PlanTier, PlanDefinition>> = {
       monthlySearches: 300,
       monthlyProposals: 100,
       maxMembers: 5,
+      canExportCsv: false,
     },
     features: [
       '検索 月 300 件',
@@ -171,6 +174,7 @@ export const PLANS: Readonly<Record<PlanTier, PlanDefinition>> = {
       monthlySearches: 1000,
       monthlyProposals: 300,
       maxMembers: 20,
+      canExportCsv: true,
     },
     features: [
       '多店舗管理 5 店舗まで',

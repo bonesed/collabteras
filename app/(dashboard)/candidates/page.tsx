@@ -3,11 +3,13 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { CandidateKanbanBoard } from '@/components/features/candidates/candidate-kanban-board';
+import { CsvExportButton } from '@/components/features/candidates/csv-export-button';
 import { EmptyState } from '@/components/features/layout/empty-state';
 import { PageHeader } from '@/components/features/layout/page-header';
 import { Button } from '@/components/ui/button';
 import { requireSessionContext } from '@/lib/auth';
 import { listCandidatesForPipeline } from '@/lib/queries/candidates';
+import { getOrganizationPlan } from '@/lib/queries/organizations';
 import { listStores } from '@/lib/queries/stores';
 
 export const metadata: Metadata = { title: 'コラボ候補' };
@@ -25,7 +27,10 @@ export default async function CandidatesPage({
   const { store: requestedStoreId, candidate: openCandidateId } =
     await searchParams;
   const { organization } = await requireSessionContext();
-  const stores = await listStores(organization.id);
+  const { organization: latestOrganization, limits } = await getOrganizationPlan(
+    organization.id,
+  );
+  const stores = await listStores(latestOrganization.id);
 
   if (stores.length === 0) {
     return (
@@ -53,7 +58,7 @@ export default async function CandidatesPage({
   }
 
   const candidates = await listCandidatesForPipeline(
-    organization.id,
+    latestOrganization.id,
     selectedStore.id,
   );
 
@@ -63,12 +68,21 @@ export default async function CandidatesPage({
         title="コラボ候補"
         description={`${selectedStore.name} の周辺から抽出した店舗の、アプローチ状況です。カードはドラッグで列を移動できます。`}
         action={
-          <Button asChild>
-            <Link href={`/candidates/search?store=${selectedStore.id}`}>
-              <MapPinned className="size-4" aria-hidden />
-              近隣を再抽出
-            </Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {candidates.length > 0 ? (
+              <CsvExportButton
+                storeId={selectedStore.id}
+                storeName={selectedStore.name}
+                canExport={limits.canExportCsv}
+              />
+            ) : null}
+            <Button asChild>
+              <Link href={`/candidates/search?store=${selectedStore.id}`}>
+                <MapPinned className="size-4" aria-hidden />
+                近隣を再抽出
+              </Link>
+            </Button>
+          </div>
         }
       />
 

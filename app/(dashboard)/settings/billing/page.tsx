@@ -19,6 +19,7 @@ import {
 import { requireSessionContext } from '@/lib/auth';
 import { PLANS } from '@/lib/constants';
 import { formatDate, formatJpy } from '@/lib/format';
+import { getOrganizationPlan } from '@/lib/queries/organizations';
 import { isStripeConfigured } from '@/lib/stripe/client';
 import { purchasablePlanTiers } from '@/lib/stripe/plans';
 import type { MemberRole, PlanDefinition, PlanTier } from '@/types';
@@ -39,8 +40,8 @@ interface BillingPageProps {
 export default async function BillingPage({ searchParams }: BillingPageProps) {
   const { checkout } = await searchParams;
   const { organization, role } = await requireSessionContext();
-
-  const currentPlan = PLANS[organization.plan];
+  const { organization: latestOrganization, definition: currentPlan } =
+    await getOrganizationPlan(organization.id);
   const canManage = BILLING_ROLES.includes(role);
   const stripeReady = isStripeConfigured();
   const purchasable = new Set<string>(stripeReady ? purchasablePlanTiers() : []);
@@ -58,7 +59,7 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
         title="プランとお支払い"
         description="ご利用状況に合わせてプランを変更できます。お支払いは Stripe が処理します。"
         action={
-          organization.stripe_customer_id === null ? undefined : (
+          latestOrganization.stripe_customer_id === null ? undefined : (
             <BillingPortalButton disabled={!canManage} />
           )
         }
@@ -100,9 +101,9 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
             {formatJpy(currentPlan.monthlyPriceJpy)}
             <span className="ml-1 font-normal text-muted-foreground">/ 月</span>
           </span>
-          {organization.current_period_end === null ? null : (
+          {latestOrganization.current_period_end === null ? null : (
             <span className="text-muted-foreground">
-              次回更新日 {formatDate(organization.current_period_end)}
+              次回更新日 {formatDate(latestOrganization.current_period_end)}
             </span>
           )}
         </CardContent>
@@ -113,9 +114,9 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
           <PlanCard
             key={tier}
             plan={PLANS[tier]}
-            isCurrent={tier === organization.plan}
+            isCurrent={tier === latestOrganization.plan}
             canPurchase={canManage && purchasable.has(tier)}
-            hasSubscription={organization.stripe_customer_id !== null}
+            hasSubscription={latestOrganization.stripe_customer_id !== null}
           />
         ))}
       </div>

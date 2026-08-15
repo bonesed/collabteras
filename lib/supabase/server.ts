@@ -33,6 +33,11 @@ export async function createClient() {
           }
         },
       },
+      // Next.js の Data Cache が PostgREST の GET を使い回すと、
+      // Stripe Webhook で更新したプランが画面に残る。常に最新を取る。
+      global: {
+        fetch: (input, init) => fetch(input, { ...init, cache: 'no-store' }),
+      },
     },
   );
 }

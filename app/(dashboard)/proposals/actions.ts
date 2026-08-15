@@ -8,12 +8,12 @@ import { generateProposal } from '@/lib/ai/proposal';
 import { requireSessionContext } from '@/lib/auth';
 import {
   COLLAB_TYPE_VALUES,
-  PLANS,
   PROPOSAL_STATUS_VALUES,
   PROPOSAL_TONE_VALUES,
 } from '@/lib/constants';
 import { toProposalStatusUpdate } from '@/lib/pipeline';
 import { getCandidate } from '@/lib/queries/candidates';
+import { getOrganizationPlan } from '@/lib/queries/organizations';
 import { countProposalsThisMonth } from '@/lib/queries/proposals';
 import { getStore } from '@/lib/queries/stores';
 import { createClient } from '@/lib/supabase/server';
@@ -62,6 +62,9 @@ export async function generateProposalDraft(
   formData: FormData,
 ): Promise<ActionResult<GeneratedProposal>> {
   const { organization } = await requireSessionContext();
+  const { organization: latestOrganization, limits } = await getOrganizationPlan(
+    organization.id,
+  );
 
   const parsed = generateSchema.safeParse({
     candidateId: formData.get('candidateId'),
@@ -74,20 +77,23 @@ export async function generateProposalDraft(
     return { ok: false, error: '生成条件が正しくありません。' };
   }
 
-  const monthlyLimit = PLANS[organization.plan].limits.monthlyProposals;
-  if ((await countProposalsThisMonth(organization.id)) >= monthlyLimit) {
+  const monthlyLimit = limits.monthlyProposals;
+  if ((await countProposalsThisMonth(latestOrganization.id)) >= monthlyLimit) {
     return {
       ok: false,
       error: `今月の提案文の上限（${monthlyLimit} 通）に達しています。プランを変更すると上限が増えます。`,
     };
   }
 
-  const candidate = await getCandidate(organization.id, parsed.data.candidateId);
+  const candidate = await getCandidate(
+    latestOrganization.id,
+    parsed.data.candidateId,
+  );
   if (candidate === null) {
     return { ok: false, error: 'コラボ候補が見つかりませんでした。' };
   }
 
-  const store = await getStore(organization.id, candidate.store_id);
+  const store = await getStore(latestOrganization.id, candidate.store_id);
   if (store === null) {
     return { ok: false, error: '自店舗の情報が見つかりませんでした。' };
   }

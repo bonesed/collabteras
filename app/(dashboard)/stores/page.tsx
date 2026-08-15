@@ -8,16 +8,19 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { requireSessionContext } from '@/lib/auth';
-import { PLANS } from '@/lib/constants';
+import { getOrganizationPlan } from '@/lib/queries/organizations';
 import { listStores } from '@/lib/queries/stores';
 
 export const metadata: Metadata = { title: '自店舗' };
 
+export const dynamic = 'force-dynamic';
+
 export default async function StoresPage() {
   const { organization } = await requireSessionContext();
-  const stores = await listStores(organization.id);
-  const plan = PLANS[organization.plan];
-  const canAddStore = stores.length < plan.limits.maxStores;
+  const { organization: latestOrganization, limits, definition } =
+    await getOrganizationPlan(organization.id);
+  const stores = await listStores(latestOrganization.id);
+  const canAddStore = stores.length < limits.maxStores;
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -36,7 +39,7 @@ export default async function StoresPage() {
 
       {!canAddStore ? (
         <p className="mb-4 rounded-lg border bg-accent px-4 py-3 text-sm text-accent-foreground">
-          {plan.name} プランで登録できる店舗数の上限（{plan.limits.maxStores} 件）に達しています。
+          {definition.name} プランで登録できる店舗数の上限（{limits.maxStores} 件）に達しています。
           <Link href="/settings/billing" className="ml-1 font-medium underline">
             プランを変更する
           </Link>

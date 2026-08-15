@@ -7,22 +7,27 @@ import { z } from 'zod';
 import { assessCompatibility } from '@/lib/ai/compatibility';
 import { requireSessionContext } from '@/lib/auth';
 import {
+  COLLAB_TYPE_LABEL_MAP,
   MAX_CANDIDATES_PER_SEARCH,
   PIPELINE_STAGE_LABEL_MAP,
   PIPELINE_STAGE_VALUES,
-  PLANS,
 } from '@/lib/constants';
+import { csvCell, toCsv } from '@/lib/csv';
 import {
   geocodeAddress,
   haversineDistanceMeters,
   searchNearbyPlaces,
   type Coordinates,
 } from '@/lib/google/places';
+import { getOrganizationPlan } from '@/lib/queries/organizations';
 import {
   STAGE_TO_PROPOSAL_STATUS,
   STAGES_REQUIRING_PROPOSAL,
   toProposalStatusUpdate,
 } from '@/lib/pipeline';
+import {
+  listCandidatesForExport,
+} from '@/lib/queries/candidates';
 import { getActiveProposalForCandidate } from '@/lib/queries/proposals';
 import { countSearchJobsThisMonth } from '@/lib/queries/search-jobs';
 import { getStore } from '@/lib/queries/stores';
@@ -52,6 +57,9 @@ export async function runNearbySearch(
   formData: FormData,
 ): Promise<ActionResult<null>> {
   const { organization } = await requireSessionContext();
+  const { organization: latestOrganization, limits } = await getOrganizationPlan(
+    organization.id,
+  );
 
   const parsed = searchSchema.safeParse({
     storeId: formData.get('storeId'),
@@ -63,15 +71,15 @@ export async function runNearbySearch(
     return { ok: false, error: '検索条件が正しくありません。' };
   }
 
-  const monthlyLimit = PLANS[organization.plan].limits.monthlySearches;
-  if ((await countSearchJobsThisMonth(organization.id)) >= monthlyLimit) {
+  const monthlyLimit = limits.monthlySearches;
+  if ((await countSearchJobsThisMonth(latestOrganization.id)) >= monthlyLimit) {
     return {
       ok: false,
-      error: `今月の抽出回数の上限（${monthlyLimit} 回）に達しています。プランを変更すると上限が増えます。`,
+      error: `今月の抽出回数の上限（${monthlyLimit} 件）に達しています。プランを変更すると上限が増えます。`,
     };
   }
 
-  const store = await getStore(organization.id, parsed.data.storeId);
+  const store = await getStore(latestOrganization.id, parsed.data.storeId);
   if (store === null) {
     return { ok: false, error: '店舗が見つかりませんでした。' };
   }
@@ -81,7 +89,7 @@ export async function runNearbySearch(
   const { data: job, error: jobError } = await supabase
     .from('search_jobs')
     .insert({
-      organization_id: organization.id,
+      organization_id: latestOrganization.id,
       store_id: store.id,
       status: 'running',
       radius_meters: parsed.data.radiusMeters,
@@ -115,7 +123,7 @@ export async function runNearbySearch(
 
     const assessments = await assessCompatibility(store, places);
     const rows = places.map((place) =>
-      toCandidateRow(organization.id, store.id, origin, place, assessments),
+      toCandidateRow(latestOrganization.id, store.id, origin, place, assessments),
     );
 
     if (rows.length > 0) {
@@ -155,6 +163,70 @@ export async function runNearbySearch(
 
   revalidatePath('/candidates');
   redirect(`/candidates?store=${store.id}`);
+}
+
+const CANDIDATE_CSV_HEADERS = [
+  '店舗名',
+  '業種',
+  '住所',
+  '距離(m)',
+  '評価',
+  '口コミ数',
+  '相性スコア',
+  '電話',
+  'Web',
+  '提案コラボ種別',
+] as const;
+
+/**
+ * 指定店舗のコラボ候補を CSV にする。プロプラン以外は拒否する。
+ */
+export async function exportCandidatesCsv(
+  storeId: string,
+): Promise<ActionResult<string>> {
+  const { organization } = await requireSessionContext();
+  const { organization: latestOrganization, limits } = await getOrganizationPlan(
+    organization.id,
+  );
+
+  if (!limits.canExportCsv) {
+    return {
+      ok: false,
+      error: 'CSV 出力はプロプランでのみ利用できます。',
+    };
+  }
+
+  const parsed = z.string().uuid().safeParse(storeId);
+  if (!parsed.success) {
+    return { ok: false, error: '不正な操作です。' };
+  }
+
+  const store = await getStore(latestOrganization.id, parsed.data);
+  if (store === null) {
+    return { ok: false, error: '店舗が見つかりませんでした。' };
+  }
+
+  const candidates = await listCandidatesForExport(
+    latestOrganization.id,
+    store.id,
+  );
+
+  const rows = candidates.map((candidate) => [
+    csvCell(candidate.name),
+    csvCell(candidate.category),
+    csvCell(candidate.address),
+    csvCell(candidate.distance_meters),
+    csvCell(candidate.rating),
+    csvCell(candidate.user_ratings_total),
+    csvCell(candidate.compatibility_score),
+    csvCell(candidate.phone),
+    csvCell(candidate.website),
+    candidate.suggested_collab_types
+      .map((type) => COLLAB_TYPE_LABEL_MAP[type])
+      .join(' / '),
+  ]);
+
+  return { ok: true, data: toCsv(CANDIDATE_CSV_HEADERS, rows) };
 }
 
 /**

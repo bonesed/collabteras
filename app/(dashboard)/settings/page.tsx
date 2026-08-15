@@ -12,8 +12,8 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { requireSessionContext } from '@/lib/auth';
-import { PLANS } from '@/lib/constants';
 import { formatJpy } from '@/lib/format';
+import { getOrganizationPlan } from '@/lib/queries/organizations';
 
 export const metadata: Metadata = { title: '設定' };
 
@@ -25,7 +25,7 @@ const ROLE_LABELS = {
 
 export default async function SettingsPage() {
   const { organization, profile, role } = await requireSessionContext();
-  const plan = PLANS[organization.plan];
+  const { definition: plan } = await getOrganizationPlan(organization.id);
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -77,7 +77,7 @@ export default async function SettingsPage() {
               <div className="flex justify-between gap-2 sm:block">
                 <dt className="text-muted-foreground">近隣抽出（月）</dt>
                 <dd className="font-medium tabular-nums">
-                  {plan.limits.monthlySearches} 回
+                  {plan.limits.monthlySearches} 件
                 </dd>
               </div>
               <div className="flex justify-between gap-2 sm:block">
@@ -90,6 +90,12 @@ export default async function SettingsPage() {
                 <dt className="text-muted-foreground">メンバー</dt>
                 <dd className="font-medium tabular-nums">
                   {plan.limits.maxMembers} 人
+                </dd>
+              </div>
+              <div className="flex justify-between gap-2 sm:block">
+                <dt className="text-muted-foreground">CSV 一括出力</dt>
+                <dd className="font-medium">
+                  {plan.limits.canExportCsv ? '利用可' : 'プロプランのみ'}
                 </dd>
               </div>
             </dl>

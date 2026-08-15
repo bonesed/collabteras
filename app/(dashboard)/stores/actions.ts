@@ -5,8 +5,8 @@ import { redirect } from 'next/navigation';
 import { z } from 'zod';
 
 import { requireSessionContext } from '@/lib/auth';
-import { PLANS } from '@/lib/constants';
 import { geocodeAddress, type Coordinates } from '@/lib/google/places';
+import { getOrganizationPlan } from '@/lib/queries/organizations';
 import { getStore } from '@/lib/queries/stores';
 import { createClient } from '@/lib/supabase/server';
 import type { ActionResult } from '@/types';
@@ -48,6 +48,9 @@ export async function createStore(
   formData: FormData,
 ): Promise<ActionResult<null>> {
   const { organization } = await requireSessionContext();
+  const { organization: latestOrganization, limits } = await getOrganizationPlan(
+    organization.id,
+  );
 
   const parsed = storeSchema.safeParse(readStoreFields(formData));
 
@@ -64,13 +67,13 @@ export async function createStore(
   const { count, error: countError } = await supabase
     .from('stores')
     .select('*', { count: 'exact', head: true })
-    .eq('organization_id', organization.id);
+    .eq('organization_id', latestOrganization.id);
 
   if (countError !== null) {
     return { ok: false, error: '店舗数の確認に失敗しました。' };
   }
 
-  const limit = PLANS[organization.plan].limits.maxStores;
+  const limit = limits.maxStores;
   if ((count ?? 0) >= limit) {
     return {
       ok: false,
@@ -82,7 +85,7 @@ export async function createStore(
   const coordinates = await tryGeocode(address);
 
   const { error } = await supabase.from('stores').insert({
-    organization_id: organization.id,
+    organization_id: latestOrganization.id,
     name: parsed.data.name,
     category: parsed.data.category,
     address,

@@ -160,6 +160,8 @@ export interface PlanLimits {
   /** 月あたりの AI 提案文生成回数 */
   monthlyProposals: number;
   maxMembers: number;
+  /** CSV 一括出力。プロプランのみ */
+  canExportCsv: boolean;
 }
 
 export interface PlanDefinition {

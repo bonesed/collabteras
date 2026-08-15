@@ -6,13 +6,13 @@ import { SidebarNav } from '@/components/features/layout/sidebar-nav';
 import { UserMenu } from '@/components/features/layout/user-menu';
 import { Badge } from '@/components/ui/badge';
 import { requireSessionContext } from '@/lib/auth';
-import { PLANS } from '@/lib/constants';
+import { getOrganizationPlan } from '@/lib/queries/organizations';
 
 export default async function DashboardLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const { profile, organization } = await requireSessionContext();
-  const plan = PLANS[organization.plan];
+  const { definition: plan } = await getOrganizationPlan(organization.id);
 
   return (
     <div className="flex min-h-dvh">

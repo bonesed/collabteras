@@ -15,20 +15,19 @@ import { ProposalStatusBadge } from '@/components/features/proposals/proposal-st
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { requireSessionContext } from '@/lib/auth';
-import { PLANS } from '@/lib/constants';
 import { getDashboardSummary } from '@/lib/queries/dashboard';
+import { getOrganizationPlan } from '@/lib/queries/organizations';
 import { listProposals } from '@/lib/queries/proposals';
 
 export const metadata: Metadata = { title: 'ダッシュボード' };
 
 export default async function DashboardPage() {
   const { organization, profile } = await requireSessionContext();
-  const [summary, recentProposals] = await Promise.all([
+  const [{ definition: plan }, summary, recentProposals] = await Promise.all([
+    getOrganizationPlan(organization.id),
     getDashboardSummary(organization.id),
     listProposals(organization.id, { limit: 5 }),
   ]);
-
-  const plan = PLANS[organization.plan];
   const displayName = profile.full_name ?? profile.email;
 
   return (

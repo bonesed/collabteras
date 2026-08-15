@@ -23,9 +23,10 @@ import { PLANS } from '@/lib/constants';
 import { formatDate, formatJpy } from '@/lib/format';
 import { getPlanDefinition } from '@/lib/plans';
 import { selectOrganizationPlan } from '@/lib/queries/organizations';
-import { createClient } from '@/lib/supabase/server';
 import { isStripeConfigured } from '@/lib/stripe/client';
 import { purchasablePlanTiers } from '@/lib/stripe/plans';
+import { reconcileOrganizationSubscription } from '@/lib/stripe/subscription';
+import { createClient } from '@/lib/supabase/server';
 import type { MemberRole, PlanDefinition, PlanTier } from '@/types';
 
 export const metadata: Metadata = { title: 'プランとお支払い' };
@@ -54,6 +55,13 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
     searchParams,
     requireSessionContext(),
   ]);
+
+  // Checkout 直後は Webhook より先に戻ることがある。Stripe を正として一度同期する。
+  if (checkout === 'success' && organization.stripe_customer_id !== null) {
+    await reconcileOrganizationSubscription(organization.id, undefined, {
+      allowDowngrade: false,
+    });
+  }
 
   // Webhook が書く organizations.plan を service role で都度読む（RLS バイパス）。
   const currentTier = await selectOrganizationPlan(organization.id);

@@ -65,9 +65,23 @@ async function syncAndRevalidate(
   revalidatePath('/settings/billing');
 }
 
+function isTerminalStatus(status: Stripe.Subscription.Status): boolean {
+  return (
+    status === 'canceled' ||
+    status === 'unpaid' ||
+    status === 'incomplete_expired'
+  );
+}
+
 async function handleEvent(stripe: Stripe, event: Stripe.Event): Promise<void> {
+  console.log('STRIPE_WEBHOOK_EVENT:', {
+    type: event.type,
+    id: event.id,
+  });
+
   switch (event.type) {
-    case 'checkout.session.completed': {
+    case 'checkout.session.completed':
+    case 'checkout.session.async_payment_succeeded': {
       const session = event.data.object;
       const subscriptionId = session.subscription;
       if (typeof subscriptionId !== 'string') {
@@ -88,14 +102,75 @@ async function handleEvent(stripe: Stripe, event: Stripe.Event): Promise<void> {
       return;
     }
 
+    case 'invoice.paid':
+    case 'invoice.payment_succeeded': {
+      const invoice = event.data.object;
+      const subscriptionId = subscriptionIdOfInvoice(invoice);
+      if (subscriptionId === null) {
+        return;
+      }
+
+      await syncAndRevalidate(
+        await stripe.subscriptions.retrieve(subscriptionId),
+        metadataValue(invoice, 'organization_id'),
+        {
+          allowDowngrade: false,
+          planTierHint: metadataValue(invoice, 'plan_tier'),
+        },
+      );
+      return;
+    }
+
     case 'customer.subscription.created':
-    case 'customer.subscription.updated':
+    case 'customer.subscription.updated': {
+      const subscription = event.data.object;
+      await syncAndRevalidate(subscription, null, {
+        // 作成・更新では free に戻さない。消すのは削除/終了イベントだけ。
+        allowDowngrade: isTerminalStatus(subscription.status),
+        planTierHint: subscription.metadata.plan_tier,
+      });
+      return;
+    }
+
     case 'customer.subscription.deleted': {
-      await syncAndRevalidate(event.data.object);
+      await syncAndRevalidate(event.data.object, null, {
+        allowDowngrade: true,
+        planTierHint: event.data.object.metadata.plan_tier,
+      });
       return;
     }
 
     default:
       return;
   }
+}
+
+function subscriptionIdOfInvoice(invoice: Stripe.Invoice): string | null {
+  const record = invoice as unknown as {
+    subscription?: string | { id?: string } | null;
+    parent?: {
+      subscription_details?: { subscription?: string | { id?: string } | null };
+    };
+  };
+
+  return asId(record.subscription) ??
+    asId(record.parent?.subscription_details?.subscription);
+}
+
+function metadataValue(
+  invoice: Stripe.Invoice,
+  key: string,
+): string | null {
+  const value = invoice.metadata?.[key];
+  return typeof value === 'string' && value !== '' ? value : null;
+}
+
+function asId(value: string | { id?: string } | null | undefined): string | null {
+  if (typeof value === 'string' && value !== '') {
+    return value;
+  }
+  if (value !== null && typeof value === 'object' && typeof value.id === 'string') {
+    return value.id;
+  }
+  return null;
 }

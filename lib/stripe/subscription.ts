@@ -57,7 +57,7 @@ export async function syncSubscription(
  * 組織の Stripe 顧客に紐づく契約を引き、organizations.plan を最新化する。
  * Checkout 完了直後（Webhook 遅延時）と Webhook の両方から呼ぶ。
  *
- * `allowDowngrade: false` は Checkout 完了直後用。
+ * `allowDowngrade: false` は Checkout 完了直後・画面自己修復用。
  * 契約が一覧にまだ見えない瞬間に free へ戻さない。
  */
 export async function reconcileOrganizationSubscription(
@@ -65,11 +65,11 @@ export async function reconcileOrganizationSubscription(
   hint?: Stripe.Subscription,
   options?: SyncSubscriptionOptions,
 ): Promise<void> {
-  const allowDowngrade = options?.allowDowngrade ?? true;
+  const allowDowngrade = options?.allowDowngrade ?? false;
   const admin = createAdminClient();
   const { data: organization, error } = await admin
     .from('organizations')
-    .select('id, stripe_customer_id')
+    .select('id, plan, stripe_customer_id, stripe_subscription_id')
     .eq('id', organizationId)
     .maybeSingle();
 
@@ -85,6 +85,7 @@ export async function reconcileOrganizationSubscription(
     (hint === undefined ? null : customerIdOf(hint));
 
   let entitled: Stripe.Subscription | null = null;
+  let listedCount = 0;
 
   if (customerId !== null && isStripeConfigured()) {
     const listed = await getStripe().subscriptions.list({
@@ -92,6 +93,7 @@ export async function reconcileOrganizationSubscription(
       status: 'all',
       limit: 20,
     });
+    listedCount = listed.data.length;
     entitled = pickEntitledSubscription(listed.data);
   }
 
@@ -99,16 +101,51 @@ export async function reconcileOrganizationSubscription(
     entitled = hint;
   }
 
+  const resolvedPlan =
+    entitled !== null
+      ? resolvePlanFromSubscription(entitled, options?.planTierHint)
+      : hint !== undefined
+        ? resolvePlanFromSubscription(hint, options?.planTierHint)
+        : null;
+
+  console.log('STRIPE_RECONCILE:', {
+    organizationId,
+    customerId,
+    currentPlan: organization.plan,
+    currentSubscriptionId: organization.stripe_subscription_id,
+    listedCount,
+    entitledId: entitled?.id ?? null,
+    entitledStatus: entitled?.status ?? null,
+    hintId: hint?.id ?? null,
+    hintStatus: hint?.status ?? null,
+    resolvedPlan,
+    allowDowngrade,
+  });
+
   if (entitled === null) {
     if (!allowDowngrade) {
       return;
     }
+
+    // 別サブスクの終了イベントで、今の有効契約を消さない。
+    if (
+      hint !== undefined &&
+      isTerminal(hint) &&
+      organization.stripe_subscription_id !== null &&
+      hint.id !== organization.stripe_subscription_id
+    ) {
+      console.warn(
+        'STRIPE_RECONCILE: 別契約の終了イベントのため plan は変更しません',
+        { hintId: hint.id, kept: organization.stripe_subscription_id },
+      );
+      return;
+    }
+
     // Checkout 直後の incomplete やイベント順不同で、有効契約を消さない。
     if (hint !== undefined && !isTerminal(hint)) {
-      const hintedPlan = resolvePlanFromSubscription(hint, options?.planTierHint);
-      if (hintedPlan !== null) {
+      if (resolvedPlan !== null) {
         await updateOrganizationBilling(organizationId, {
-          plan: hintedPlan,
+          plan: resolvedPlan,
           stripe_subscription_id: hint.id,
           current_period_end: periodEndOf(hint),
         });
@@ -117,7 +154,38 @@ export async function reconcileOrganizationSubscription(
     }
   }
 
-  await applySubscriptionState(organizationId, entitled, options?.planTierHint);
+  await applySubscriptionState(
+    organizationId,
+    entitled,
+    options?.planTierHint,
+    { allowDowngrade, currentPlan: organization.plan },
+  );
+}
+
+/**
+ * 顧客 ID があるのに plan が free / 契約 ID が空のとき、Stripe を正として書き直す。
+ * ダウングレードはしない。Webhook が free に戻した行の自己修復用。
+ */
+export async function healOrganizationPlanFromStripe(
+  organizationId: string,
+  stripeCustomerId: string | null,
+  currentPlan: string,
+  stripeSubscriptionId: string | null,
+): Promise<boolean> {
+  if (!isStripeConfigured() || stripeCustomerId === null) {
+    return false;
+  }
+
+  const looksInconsistent =
+    currentPlan === 'free' || stripeSubscriptionId === null;
+  if (!looksInconsistent) {
+    return false;
+  }
+
+  await reconcileOrganizationSubscription(organizationId, undefined, {
+    allowDowngrade: false,
+  });
+  return true;
 }
 
 function isEntitled(subscription: Stripe.Subscription): boolean {
@@ -188,8 +256,16 @@ async function applySubscriptionState(
   organizationId: string,
   subscription: Stripe.Subscription | null,
   planTierHint?: string | null,
+  context?: { allowDowngrade: boolean; currentPlan: string },
 ): Promise<void> {
   if (subscription === null || !isEntitled(subscription)) {
+    if (context?.allowDowngrade !== true) {
+      console.warn(
+        'STRIPE_RECONCILE: 有効契約が見つからないため plan は変更しません',
+        { organizationId, currentPlan: context?.currentPlan },
+      );
+      return;
+    }
     await updateOrganizationBilling(organizationId, {
       plan: 'free',
       stripe_subscription_id: null,
@@ -205,6 +281,10 @@ async function applySubscriptionState(
     // 有効契約があるのに Price が未知。free に戻さず、契約 ID だけ残す。
     console.error(
       `有効なサブスクリプション ${subscription.id} の Price をプランに対応づけられませんでした。plan 列は変更しません。`,
+      {
+        priceId: subscription.items.data[0]?.price.id ?? null,
+        metadata: subscription.metadata,
+      },
     );
     await updateOrganizationBilling(organizationId, {
       stripe_subscription_id: subscription.id,
@@ -228,6 +308,8 @@ async function updateOrganizationBilling(
     current_period_end: string | null;
   },
 ): Promise<void> {
+  console.log('ORG_BILLING_UPDATE:', { organizationId, values });
+
   const { error } = await createAdminClient()
     .from('organizations')
     .update({

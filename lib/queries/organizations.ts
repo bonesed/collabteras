@@ -10,6 +10,7 @@ import {
   getPlanLimits,
   resolvePlanTier,
 } from '@/lib/plans';
+import { healOrganizationPlanFromStripe } from '@/lib/stripe/subscription';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import type { Organization, PlanDefinition, PlanLimits, PlanTier } from '@/types';
@@ -55,37 +56,6 @@ async function bindAuthCookies(): Promise<void> {
   await supabase.auth.getUser();
 }
 
-/**
- * Webhook と同じ `organizations.plan` だけを SELECT する。
- * リリース優先のため、この読み取りは service role（RLS 完全バイパス）固定。
- * 'free' へのフォールバックはしない。
- */
-const fetchPlanColumn = cache(async function fetchPlanColumn(
-  organizationId: string,
-): Promise<string> {
-  await bindAuthCookies();
-
-  const admin = createAdminClient();
-  const { data, error } = await admin
-    .from('organizations')
-    .select('plan')
-    .eq('id', organizationId)
-    .maybeSingle();
-
-  console.log('DB_FETCH_RESULT:', { data, error });
-
-  if (error !== null) {
-    throw new Error(`organizations.plan の取得に失敗しました: ${error.message}`);
-  }
-  if (data === null || !data.plan) {
-    throw new Error(
-      'organizations.plan を取得できませんでした。RLS または service role を確認してください。',
-    );
-  }
-
-  return data.plan;
-});
-
 async function fetchOrganizationRecord(
   organizationId: string,
 ): Promise<Organization> {
@@ -111,6 +81,29 @@ async function fetchOrganizationRecord(
 }
 
 /**
+ * 顧客 ID があるのに plan が free の行は、Webhook が後から消した可能性が高い。
+ * Stripe を正として一度だけ書き直し、その結果を返す。
+ */
+async function fetchOrganizationRecordHealed(
+  organizationId: string,
+): Promise<Organization> {
+  const record = await fetchOrganizationRecord(organizationId);
+
+  const healed = await healOrganizationPlanFromStripe(
+    record.id,
+    record.stripe_customer_id,
+    record.plan,
+    record.stripe_subscription_id,
+  );
+
+  if (!healed) {
+    return record;
+  }
+
+  return fetchOrganizationRecord(organizationId);
+}
+
+/**
  * organizations 行の読み取り口。
  * plan 列は専用 SELECT で取り直し、他列の失敗で 'free' に落ちないようにする。
  */
@@ -120,14 +113,11 @@ const fetchOrganizationRow = cache(async function fetchOrganizationRow(
   noStore();
   await connection();
 
-  const [record, plan] = await Promise.all([
-    fetchOrganizationRecord(organizationId),
-    fetchPlanColumn(organizationId),
-  ]);
+  const record = await fetchOrganizationRecordHealed(organizationId);
 
   return {
     ...record,
-    plan: resolvePlanTier(plan),
+    plan: resolvePlanTier(record.plan),
   };
 });
 
@@ -150,7 +140,8 @@ export async function selectOrganizationPlan(
 ): Promise<PlanTier> {
   noStore();
   await connection();
-  return resolvePlanTier(await fetchPlanColumn(organizationId));
+  const organization = await fetchOrganizationRow(organizationId);
+  return organization.plan;
 }
 
 /**

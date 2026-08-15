@@ -22,6 +22,10 @@ import { listProposals } from '@/lib/queries/proposals';
 
 export const metadata: Metadata = { title: '提案' };
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
+
 export default async function ProposalsPage() {
   const { organization } = await requireSessionContext();
   const proposals = await listProposals(organization.id);

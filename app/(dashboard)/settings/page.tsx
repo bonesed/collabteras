@@ -17,6 +17,10 @@ import { getOrganizationPlan } from '@/lib/queries/organizations';
 
 export const metadata: Metadata = { title: '設定' };
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
+
 const ROLE_LABELS = {
   owner: 'オーナー',
   admin: '管理者',

@@ -61,9 +61,11 @@ export async function runNearbySearch(
   let latestOrganization = organization;
   let monthlyLimit = 0;
   try {
-    const plan = await getOrganizationPlan(organization.id);
-    latestOrganization = plan.organization ?? organization;
-    monthlyLimit = plan.limits?.monthlySearches ?? 0;
+    const { organization: latest, limits } = await getOrganizationPlan(
+      organization.id,
+    );
+    latestOrganization = latest;
+    monthlyLimit = limits.monthlySearches;
   } catch (error) {
     console.error('プラン上限の取得に失敗しました', error);
     return { ok: false, error: 'プラン情報の確認に失敗しました。時間をおいて再度お試しください。' };
@@ -204,9 +206,11 @@ export async function exportCandidatesCsv(
   let latestOrganization = organization;
   let canExport = false;
   try {
-    const plan = await getOrganizationPlan(organization.id);
-    latestOrganization = plan.organization ?? organization;
-    canExport = plan.limits?.canExportCsv ?? false;
+    const { organization: latest, limits } = await getOrganizationPlan(
+      organization.id,
+    );
+    latestOrganization = latest;
+    canExport = limits.canExportCsv;
   } catch (error) {
     console.error('プラン上限の取得に失敗しました', error);
     return { ok: false, error: 'プラン情報の確認に失敗しました。時間をおいて再度お試しください。' };

@@ -8,6 +8,13 @@ const nextConfig = {
   reactStrictMode: true,
   // Stripe Webhook の POST が末尾スラッシュ差で 307/308 されないようにする
   skipTrailingSlashRedirect: true,
+  // クライアントの Router Cache が古いプランを残さない。
+  experimental: {
+    staleTimes: {
+      dynamic: 0,
+      static: 0,
+    },
+  },
   // 上位ディレクトリにも lockfile があると workspace root を誤検出するため固定する。
   outputFileTracingRoot: projectRoot,
   images: {

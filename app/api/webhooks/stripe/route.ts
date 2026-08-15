@@ -54,23 +54,30 @@ export async function POST(request: Request) {
 
 async function syncAndRevalidate(
   subscription: Stripe.Subscription,
+  fallbackOrganizationId?: string | null,
 ): Promise<void> {
-  await syncSubscription(subscription);
+  await syncSubscription(subscription, fallbackOrganizationId);
   // ダッシュボード全体がプラン表示を持つため、layout から再検証する。
   revalidatePath('/', 'layout');
+  revalidatePath('/dashboard');
+  revalidatePath('/stores/new');
+  revalidatePath('/settings/billing');
 }
 
 async function handleEvent(stripe: Stripe, event: Stripe.Event): Promise<void> {
   switch (event.type) {
     case 'checkout.session.completed': {
-      const subscriptionId = event.data.object.subscription;
+      const session = event.data.object;
+      const subscriptionId = session.subscription;
       if (typeof subscriptionId !== 'string') {
         return;
       }
 
       // Checkout のセッションには課金項目の期間が入らないため、引き直す。
+      // client_reference_id は組織 ID。metadata 欠落時の保険。
       await syncAndRevalidate(
         await stripe.subscriptions.retrieve(subscriptionId),
+        session.client_reference_id,
       );
       return;
     }

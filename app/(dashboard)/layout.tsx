@@ -8,6 +8,10 @@ import { Badge } from '@/components/ui/badge';
 import { requireSessionContext } from '@/lib/auth';
 import { getOrganizationPlan } from '@/lib/queries/organizations';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
+
 export default async function DashboardLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {

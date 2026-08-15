@@ -12,6 +12,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { requireSessionContext } from '@/lib/auth';
 import { countStoreRelations, getStore } from '@/lib/queries/stores';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
+
 interface StoreDetailPageProps {
   params: Promise<{ id: string }>;
 }

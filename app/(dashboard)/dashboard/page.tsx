@@ -17,17 +17,25 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { requireSessionContext } from '@/lib/auth';
 import { getDashboardSummary } from '@/lib/queries/dashboard';
 import { getOrganizationPlan } from '@/lib/queries/organizations';
-import { listProposals } from '@/lib/queries/proposals';
+import { countProposalsThisMonth, listProposals } from '@/lib/queries/proposals';
+import { countSearchJobsThisMonth } from '@/lib/queries/search-jobs';
 
 export const metadata: Metadata = { title: 'ダッシュボード' };
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
+
 export default async function DashboardPage() {
   const { organization, profile } = await requireSessionContext();
-  const [{ definition: plan }, summary, recentProposals] = await Promise.all([
-    getOrganizationPlan(organization.id),
-    getDashboardSummary(organization.id),
-    listProposals(organization.id, { limit: 5 }),
-  ]);
+  const [{ definition: plan, limits }, summary, recentProposals, searchCount, proposalCount] =
+    await Promise.all([
+      getOrganizationPlan(organization.id),
+      getDashboardSummary(organization.id),
+      listProposals(organization.id, { limit: 5 }),
+      countSearchJobsThisMonth(organization.id),
+      countProposalsThisMonth(organization.id),
+    ]);
   const displayName = profile.full_name ?? profile.email;
 
   return (
@@ -50,21 +58,21 @@ export default async function DashboardPage() {
           label="登録店舗"
           value={summary.storeCount}
           unit="件"
-          hint={`${plan.name} プランの上限 ${plan.limits.maxStores} 件`}
+          hint={`${plan.name} プランの上限 ${limits.maxStores} 件`}
           icon={StoreIcon}
         />
         <StatCard
           label="コラボ候補"
           value={summary.candidateCount}
           unit="件"
-          hint={`保存済み ${summary.savedCandidateCount} 件`}
+          hint={`今月の抽出 ${searchCount} / ${limits.monthlySearches} 件`}
           icon={MapPinned}
         />
         <StatCard
           label="準備中の提案"
           value={summary.draftProposalCount}
           unit="通"
-          hint="下書き・送付準備完了"
+          hint={`今月の生成 ${proposalCount} / ${limits.monthlyProposals} 通`}
           icon={Sparkles}
         />
         <StatCard

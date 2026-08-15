@@ -53,7 +53,12 @@ export async function startCheckout(
       allow_promotion_codes: true,
       client_reference_id: organization.id,
       // Webhook 側で組織を特定するための紐づけ。顧客 ID からの逆引きも用意してある。
-      subscription_data: { metadata: { organization_id: organization.id } },
+      subscription_data: {
+        metadata: {
+          organization_id: organization.id,
+          plan_tier: planTier,
+        },
+      },
       success_url: `${returnUrl}?checkout=success`,
       cancel_url: `${returnUrl}?checkout=cancelled`,
     });

@@ -57,7 +57,7 @@ export async function requireSessionContext(): Promise<SessionContext> {
     redirect('/onboarding');
   }
 
-  // プランは Webhook で更新されるため、入れ子取得ではなく組織テーブルを直接読む。
+  // プランは organizations テーブルの plan 列を都度読む。user_metadata は使わない。
   const organization = await getOrganization(membership.organization_id);
 
   return {

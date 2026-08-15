@@ -8,18 +8,16 @@ import { EmptyState } from '@/components/features/layout/empty-state';
 import { PageHeader } from '@/components/features/layout/page-header';
 import { Button } from '@/components/ui/button';
 import { requireSessionContext } from '@/lib/auth';
-import { getPlanLimits } from '@/lib/plans';
 import { listCandidatesForPipeline } from '@/lib/queries/candidates';
 import { getOrganizationPlanSafe } from '@/lib/queries/organizations';
 import { listStores } from '@/lib/queries/stores';
-import type {
-  CandidateWithProposals,
-  Organization,
-  PlanLimits,
-  Store,
-} from '@/types';
+import type { CandidateWithProposals, Store } from '@/types';
 
 export const metadata: Metadata = { title: 'コラボ候補' };
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 // AI による提案文の生成をこのページの Server Action から呼ぶため、余裕を持たせる。
 export const maxDuration = 60;
@@ -34,9 +32,8 @@ export default async function CandidatesPage({
   const { store: requestedStoreId, candidate: openCandidateId } =
     await searchParams;
   const { organization } = await requireSessionContext();
-
   const { organization: latestOrganization, limits } =
-    await loadPlanLimitsSafely(organization);
+    await getOrganizationPlanSafe(organization.id, organization);
 
   const stores = await loadStoresSafely(latestOrganization.id);
 
@@ -145,25 +142,6 @@ export default async function CandidatesPage({
       )}
     </div>
   );
-}
-
-async function loadPlanLimitsSafely(organization: Organization): Promise<{
-  organization: Organization;
-  limits: PlanLimits;
-}> {
-  try {
-    const plan = await getOrganizationPlanSafe(organization.id, organization);
-    return {
-      organization: plan.organization ?? organization,
-      limits: plan.limits ?? getPlanLimits(organization.plan),
-    };
-  } catch (error) {
-    console.error('プラン上限の取得に失敗しました', error);
-    return {
-      organization,
-      limits: getPlanLimits(organization.plan),
-    };
-  }
 }
 
 async function loadStoresSafely(organizationId: string): Promise<Store[]> {

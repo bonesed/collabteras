@@ -16,16 +16,19 @@ import {
 import { requireSessionContext } from '@/lib/auth';
 import { JOB_STATUS_LABEL_MAP } from '@/lib/constants';
 import { formatDateTime } from '@/lib/format';
-import { getPlanLimits } from '@/lib/plans';
 import { getOrganizationPlanSafe } from '@/lib/queries/organizations';
 import {
   countSearchJobsThisMonth,
   listRecentSearchJobs,
 } from '@/lib/queries/search-jobs';
 import { getStore } from '@/lib/queries/stores';
-import type { Organization, PlanLimits, SearchJob, Store } from '@/types';
+import type { SearchJob, Store } from '@/types';
 
 export const metadata: Metadata = { title: '近隣を抽出' };
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 // Places の取得と AI の採点を同期的に行うため、既定のタイムアウトでは足りない。
 export const maxDuration = 120;
@@ -45,7 +48,7 @@ export default async function CandidateSearchPage({
   }
 
   const { organization: latestOrganization, limits } =
-    await loadPlanLimitsSafely(organization);
+    await getOrganizationPlanSafe(organization.id, organization);
 
   const store = await loadStoreSafely(latestOrganization.id, storeId);
   if (store === null) {
@@ -129,25 +132,6 @@ export default async function CandidateSearchPage({
       ) : null}
     </div>
   );
-}
-
-async function loadPlanLimitsSafely(organization: Organization): Promise<{
-  organization: Organization;
-  limits: PlanLimits;
-}> {
-  try {
-    const plan = await getOrganizationPlanSafe(organization.id, organization);
-    return {
-      organization: plan.organization ?? organization,
-      limits: plan.limits ?? getPlanLimits(organization.plan),
-    };
-  } catch (error) {
-    console.error('プラン上限の取得に失敗しました', error);
-    return {
-      organization,
-      limits: getPlanLimits(organization.plan),
-    };
-  }
 }
 
 async function loadStoreSafely(

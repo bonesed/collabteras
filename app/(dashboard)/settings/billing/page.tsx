@@ -22,9 +22,14 @@ import { formatDate, formatJpy } from '@/lib/format';
 import { getOrganizationPlan } from '@/lib/queries/organizations';
 import { isStripeConfigured } from '@/lib/stripe/client';
 import { purchasablePlanTiers } from '@/lib/stripe/plans';
+import { reconcileOrganizationSubscription } from '@/lib/stripe/subscription';
 import type { MemberRole, PlanDefinition, PlanTier } from '@/types';
 
 export const metadata: Metadata = { title: 'プランとお支払い' };
+
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 const BILLING_ROLES: readonly MemberRole[] = ['owner', 'admin'];
 
@@ -40,6 +45,18 @@ interface BillingPageProps {
 export default async function BillingPage({ searchParams }: BillingPageProps) {
   const { checkout } = await searchParams;
   const { organization, role } = await requireSessionContext();
+
+  // Webhook が遅れていても、決済完了直後に organizations.plan を最新化する。
+  if (checkout === 'success') {
+    try {
+      await reconcileOrganizationSubscription(organization.id, undefined, {
+        allowDowngrade: false,
+      });
+    } catch (error) {
+      console.error('Checkout 完了後のプラン同期に失敗しました', error);
+    }
+  }
+
   const { organization: latestOrganization, definition: currentPlan } =
     await getOrganizationPlan(organization.id);
   const canManage = BILLING_ROLES.includes(role);

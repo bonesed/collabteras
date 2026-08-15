@@ -14,6 +14,10 @@ import {
 
 export const metadata: Metadata = { title: '新規登録' };
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
+
 export default function SignUpPage() {
   return (
     <Card>

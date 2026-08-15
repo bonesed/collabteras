@@ -24,6 +24,10 @@ import { formatDateTime, formatDistance } from '@/lib/format';
 import { getProposal } from '@/lib/queries/proposals';
 import type { Candidate, ProposalDetail } from '@/types';
 
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
+
 interface ProposalDetailPageProps {
   params: Promise<{ id: string }>;
 }

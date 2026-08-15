@@ -57,9 +57,17 @@ export async function runNearbySearch(
   formData: FormData,
 ): Promise<ActionResult<null>> {
   const { organization } = await requireSessionContext();
-  const { organization: latestOrganization, limits } = await getOrganizationPlan(
-    organization.id,
-  );
+
+  let latestOrganization = organization;
+  let monthlyLimit = 0;
+  try {
+    const plan = await getOrganizationPlan(organization.id);
+    latestOrganization = plan.organization ?? organization;
+    monthlyLimit = plan.limits?.monthlySearches ?? 0;
+  } catch (error) {
+    console.error('プラン上限の取得に失敗しました', error);
+    return { ok: false, error: 'プラン情報の確認に失敗しました。時間をおいて再度お試しください。' };
+  }
 
   const parsed = searchSchema.safeParse({
     storeId: formData.get('storeId'),
@@ -71,8 +79,15 @@ export async function runNearbySearch(
     return { ok: false, error: '検索条件が正しくありません。' };
   }
 
-  const monthlyLimit = limits.monthlySearches;
-  if ((await countSearchJobsThisMonth(latestOrganization.id)) >= monthlyLimit) {
+  let usedThisMonth = 0;
+  try {
+    usedThisMonth = await countSearchJobsThisMonth(latestOrganization.id);
+  } catch (error) {
+    console.error('抽出回数の集計に失敗しました', error);
+    return { ok: false, error: '抽出回数の確認に失敗しました。時間をおいて再度お試しください。' };
+  }
+
+  if (usedThisMonth >= monthlyLimit) {
     return {
       ok: false,
       error: `今月の抽出回数の上限（${monthlyLimit} 件）に達しています。プランを変更すると上限が増えます。`,
@@ -185,11 +200,19 @@ export async function exportCandidatesCsv(
   storeId: string,
 ): Promise<ActionResult<string>> {
   const { organization } = await requireSessionContext();
-  const { organization: latestOrganization, limits } = await getOrganizationPlan(
-    organization.id,
-  );
 
-  if (!limits.canExportCsv) {
+  let latestOrganization = organization;
+  let canExport = false;
+  try {
+    const plan = await getOrganizationPlan(organization.id);
+    latestOrganization = plan.organization ?? organization;
+    canExport = plan.limits?.canExportCsv ?? false;
+  } catch (error) {
+    console.error('プラン上限の取得に失敗しました', error);
+    return { ok: false, error: 'プラン情報の確認に失敗しました。時間をおいて再度お試しください。' };
+  }
+
+  if (!canExport) {
     return {
       ok: false,
       error: 'CSV 出力はプロプランでのみ利用できます。',

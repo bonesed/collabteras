@@ -25,9 +25,15 @@ export function isPlanTier(value: string): value is PlanTier {
 
 /**
  * DB の plan 列・旧名称・Stripe Price ID を PlanTier に正規化する。
- * 見覚えのない値は free に倒し、PLANS[unknown] で落ちないようにする。
+ * 見覚えのない値や null は free に倒し、PLANS[unknown] で落ちないようにする。
  */
-export function resolvePlanTier(value: string): PlanTier {
+export function resolvePlanTier(
+  value: string | null | undefined,
+): PlanTier {
+  if (value == null || value === '') {
+    return 'free';
+  }
+
   if (isPlanTier(value)) {
     return value;
   }
@@ -37,15 +43,31 @@ export function resolvePlanTier(value: string): PlanTier {
     return 'light';
   }
 
-  return planTierForPrice(value) ?? 'free';
+  try {
+    return planTierForPrice(value) ?? 'free';
+  } catch {
+    return 'free';
+  }
 }
 
-export function getPlanDefinition(planValue: string): PlanDefinition {
-  return PLANS[resolvePlanTier(planValue)];
+export function getPlanDefinition(
+  planValue: string | null | undefined,
+): PlanDefinition {
+  try {
+    return PLANS[resolvePlanTier(planValue)] ?? PLANS.free;
+  } catch {
+    return PLANS.free;
+  }
 }
 
-export function getPlanLimits(planValue: string): PlanLimits {
-  return PLAN_LIMITS[resolvePlanTier(planValue)];
+export function getPlanLimits(
+  planValue: string | null | undefined,
+): PlanLimits {
+  try {
+    return PLAN_LIMITS[resolvePlanTier(planValue)] ?? PLAN_LIMITS.free;
+  } catch {
+    return PLAN_LIMITS.free;
+  }
 }
 
 /** CSV 一括出力はプロプランのみ。 */

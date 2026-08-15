@@ -48,9 +48,9 @@ export const STAGES_REQUIRING_PROPOSAL: readonly PipelineStage[] = [
  * 提案は更新日の新しい順に並んでいる前提で、アーカイブ済みを飛ばして先頭を返す。
  */
 export function findActiveProposal(
-  proposals: readonly ProposalSummary[],
+  proposals: readonly ProposalSummary[] | null | undefined,
 ): ProposalSummary | null {
-  return proposals.find((proposal) => proposal.status !== 'archived') ?? null;
+  return proposals?.find((proposal) => proposal.status !== 'archived') ?? null;
 }
 
 export function resolveStage(candidate: CandidateWithProposals): PipelineStage {

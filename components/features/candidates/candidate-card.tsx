@@ -96,7 +96,7 @@ export function CandidateCard({
           )}
         </div>
 
-        {candidate.score_reasons[0] === undefined ? null : (
+        {(candidate.score_reasons ?? [])[0] === undefined ? null : (
           <p className="line-clamp-2 pl-6 text-xs leading-relaxed text-muted-foreground">
             {candidate.score_reasons[0]}
           </p>

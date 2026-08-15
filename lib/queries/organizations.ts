@@ -46,9 +46,42 @@ export async function getOrganizationPlan(organizationId: string): Promise<{
 }> {
   const organization = await getOrganization(organizationId);
 
-  return {
-    organization,
-    limits: getPlanLimits(organization.plan),
-    definition: getPlanDefinition(organization.plan),
-  };
+  try {
+    return {
+      organization,
+      limits: getPlanLimits(organization.plan),
+      definition: getPlanDefinition(organization.plan),
+    };
+  } catch (error) {
+    console.error('プラン上限の算出に失敗しました', error);
+    return {
+      organization,
+      limits: getPlanLimits('free'),
+      definition: getPlanDefinition('free'),
+    };
+  }
+}
+
+/**
+ * 画面表示用。組織・プランの取得に失敗しても free 相当で続行する。
+ * ページ全体を落とさないためのフォールバック。
+ */
+export async function getOrganizationPlanSafe(
+  organizationId: string,
+  fallback: Organization,
+): Promise<{
+  organization: Organization;
+  limits: PlanLimits;
+  definition: PlanDefinition;
+}> {
+  try {
+    return await getOrganizationPlan(organizationId);
+  } catch (error) {
+    console.error('組織プランの取得に失敗しました', error);
+    return {
+      organization: fallback,
+      limits: getPlanLimits(fallback.plan),
+      definition: getPlanDefinition(fallback.plan),
+    };
+  }
 }

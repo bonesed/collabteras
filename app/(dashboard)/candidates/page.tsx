@@ -8,9 +8,16 @@ import { EmptyState } from '@/components/features/layout/empty-state';
 import { PageHeader } from '@/components/features/layout/page-header';
 import { Button } from '@/components/ui/button';
 import { requireSessionContext } from '@/lib/auth';
+import { getPlanLimits } from '@/lib/plans';
 import { listCandidatesForPipeline } from '@/lib/queries/candidates';
-import { getOrganizationPlan } from '@/lib/queries/organizations';
+import { getOrganizationPlanSafe } from '@/lib/queries/organizations';
 import { listStores } from '@/lib/queries/stores';
+import type {
+  CandidateWithProposals,
+  Organization,
+  PlanLimits,
+  Store,
+} from '@/types';
 
 export const metadata: Metadata = { title: 'コラボ候補' };
 
@@ -27,10 +34,11 @@ export default async function CandidatesPage({
   const { store: requestedStoreId, candidate: openCandidateId } =
     await searchParams;
   const { organization } = await requireSessionContext();
-  const { organization: latestOrganization, limits } = await getOrganizationPlan(
-    organization.id,
-  );
-  const stores = await listStores(latestOrganization.id);
+
+  const { organization: latestOrganization, limits } =
+    await loadPlanLimitsSafely(organization);
+
+  const stores = await loadStoresSafely(latestOrganization.id);
 
   if (stores.length === 0) {
     return (
@@ -54,10 +62,24 @@ export default async function CandidatesPage({
     stores.find((store) => store.id === requestedStoreId) ?? stores[0];
 
   if (selectedStore === undefined) {
-    return null;
+    return (
+      <div className="mx-auto max-w-5xl">
+        <PageHeader title="コラボ候補" />
+        <EmptyState
+          icon={StoreIcon}
+          title="店舗を表示できません"
+          description="指定された店舗が見つからないか、店舗データの取得に失敗しました。"
+          action={
+            <Button asChild>
+              <Link href="/stores">自店舗一覧を見る</Link>
+            </Button>
+          }
+        />
+      </div>
+    );
   }
 
-  const candidates = await listCandidatesForPipeline(
+  const candidates = await loadCandidatesSafely(
     latestOrganization.id,
     selectedStore.id,
   );
@@ -123,4 +145,44 @@ export default async function CandidatesPage({
       )}
     </div>
   );
+}
+
+async function loadPlanLimitsSafely(organization: Organization): Promise<{
+  organization: Organization;
+  limits: PlanLimits;
+}> {
+  try {
+    const plan = await getOrganizationPlanSafe(organization.id, organization);
+    return {
+      organization: plan.organization ?? organization,
+      limits: plan.limits ?? getPlanLimits(organization.plan),
+    };
+  } catch (error) {
+    console.error('プラン上限の取得に失敗しました', error);
+    return {
+      organization,
+      limits: getPlanLimits(organization.plan),
+    };
+  }
+}
+
+async function loadStoresSafely(organizationId: string): Promise<Store[]> {
+  try {
+    return (await listStores(organizationId)) ?? [];
+  } catch (error) {
+    console.error('店舗の取得に失敗しました', error);
+    return [];
+  }
+}
+
+async function loadCandidatesSafely(
+  organizationId: string,
+  storeId: string,
+): Promise<CandidateWithProposals[]> {
+  try {
+    return (await listCandidatesForPipeline(organizationId, storeId)) ?? [];
+  } catch (error) {
+    console.error('コラボ候補の取得に失敗しました', error);
+    return [];
+  }
 }

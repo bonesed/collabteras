@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { createClient } from '@/lib/supabase/server';
+import { isUuid } from '@/lib/utils';
 import type { Candidate, CandidateWithProposals } from '@/types';
 
 /** カンバンのカードに必要な、候補にぶら下がる提案の項目 */
@@ -16,21 +17,44 @@ export async function listCandidatesForPipeline(
   storeId: string,
   limit = 100,
 ): Promise<CandidateWithProposals[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('candidates')
-    .select(CANDIDATE_PROPOSALS_SELECT)
-    .eq('organization_id', organizationId)
-    .eq('store_id', storeId)
-    .order('compatibility_score', { ascending: false, nullsFirst: false })
-    .order('updated_at', { referencedTable: 'proposals', ascending: false })
-    .limit(limit);
-
-  if (error !== null) {
-    throw new Error(`コラボ候補の取得に失敗しました: ${error.message}`);
+  if (!isUuid(organizationId) || !isUuid(storeId)) {
+    return [];
   }
 
-  return data;
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from('candidates')
+      .select(CANDIDATE_PROPOSALS_SELECT)
+      .eq('organization_id', organizationId)
+      .eq('store_id', storeId)
+      .order('compatibility_score', { ascending: false, nullsFirst: false })
+      .order('updated_at', { referencedTable: 'proposals', ascending: false })
+      .limit(limit);
+
+    if (error !== null) {
+      console.error('コラボ候補の取得に失敗しました', error);
+      return [];
+    }
+
+    return (data ?? []).map(normalizeCandidateWithProposals);
+  } catch (error) {
+    console.error('コラボ候補の取得に失敗しました', error);
+    return [];
+  }
+}
+
+function normalizeCandidateWithProposals(
+  row: CandidateWithProposals,
+): CandidateWithProposals {
+  return {
+    ...row,
+    proposals: Array.isArray(row.proposals) ? row.proposals : [],
+    score_reasons: Array.isArray(row.score_reasons) ? row.score_reasons : [],
+    suggested_collab_types: Array.isArray(row.suggested_collab_types)
+      ? row.suggested_collab_types
+      : [],
+  };
 }
 
 /** CSV 出力用。カンバンの 100 件制限はかけず、その店舗の候補をすべて返す。 */
@@ -50,7 +74,7 @@ export async function listCandidatesForExport(
     throw new Error(`コラボ候補の取得に失敗しました: ${error.message}`);
   }
 
-  return data;
+  return data ?? [];
 }
 
 export async function getCandidate(

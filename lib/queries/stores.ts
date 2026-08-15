@@ -1,40 +1,61 @@
 import 'server-only';
 
 import { createClient } from '@/lib/supabase/server';
+import { isUuid } from '@/lib/utils';
 import type { Store } from '@/types';
 
 export async function listStores(organizationId: string): Promise<Store[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('stores')
-    .select('*')
-    .eq('organization_id', organizationId)
-    .order('created_at', { ascending: true });
-
-  if (error !== null) {
-    throw new Error(`店舗の取得に失敗しました: ${error.message}`);
+  if (!isUuid(organizationId)) {
+    return [];
   }
 
-  return data;
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from('stores')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .order('created_at', { ascending: true });
+
+    if (error !== null) {
+      console.error('店舗の取得に失敗しました', error);
+      return [];
+    }
+
+    return data ?? [];
+  } catch (error) {
+    console.error('店舗の取得に失敗しました', error);
+    return [];
+  }
 }
 
 export async function getStore(
   organizationId: string,
   storeId: string,
 ): Promise<Store | null> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('stores')
-    .select('*')
-    .eq('organization_id', organizationId)
-    .eq('id', storeId)
-    .maybeSingle();
-
-  if (error !== null) {
-    throw new Error(`店舗の取得に失敗しました: ${error.message}`);
+  if (!isUuid(organizationId) || !isUuid(storeId)) {
+    return null;
   }
 
-  return data;
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from('stores')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .eq('id', storeId)
+      .maybeSingle();
+
+    if (error !== null) {
+      console.error('店舗の取得に失敗しました', error);
+      return null;
+    }
+
+    return data;
+  } catch (error) {
+    console.error('店舗の取得に失敗しました', error);
+    return null;
+  }
 }
 
 export interface StoreRelationCounts {

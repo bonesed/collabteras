@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { notFound, redirect } from 'next/navigation';
+import { redirect } from 'next/navigation';
 
 import { runNearbySearch } from '@/app/(dashboard)/candidates/actions';
 import { NearbySearchForm } from '@/components/features/candidates/nearby-search-form';
@@ -16,12 +16,14 @@ import {
 import { requireSessionContext } from '@/lib/auth';
 import { JOB_STATUS_LABEL_MAP } from '@/lib/constants';
 import { formatDateTime } from '@/lib/format';
-import { getOrganizationPlan } from '@/lib/queries/organizations';
+import { getPlanLimits } from '@/lib/plans';
+import { getOrganizationPlanSafe } from '@/lib/queries/organizations';
 import {
   countSearchJobsThisMonth,
   listRecentSearchJobs,
 } from '@/lib/queries/search-jobs';
 import { getStore } from '@/lib/queries/stores';
+import type { Organization, PlanLimits, SearchJob, Store } from '@/types';
 
 export const metadata: Metadata = { title: '近隣を抽出' };
 
@@ -37,22 +39,22 @@ export default async function CandidateSearchPage({
 }: SearchPageProps) {
   const { store: storeId } = await searchParams;
   const { organization } = await requireSessionContext();
-  const { organization: latestOrganization, limits } = await getOrganizationPlan(
-    organization.id,
-  );
 
   if (storeId === undefined) {
     redirect('/candidates');
   }
 
-  const store = await getStore(latestOrganization.id, storeId);
+  const { organization: latestOrganization, limits } =
+    await loadPlanLimitsSafely(organization);
+
+  const store = await loadStoreSafely(latestOrganization.id, storeId);
   if (store === null) {
-    notFound();
+    redirect('/candidates');
   }
 
   const [jobs, usedThisMonth] = await Promise.all([
-    listRecentSearchJobs(latestOrganization.id, store.id),
-    countSearchJobsThisMonth(latestOrganization.id),
+    loadRecentJobsSafely(latestOrganization.id, store.id),
+    loadSearchCountSafely(latestOrganization.id),
   ]);
 
   const monthlyLimit = limits.monthlySearches;
@@ -117,7 +119,7 @@ export default async function CandidateSearchPage({
                   <Badge
                     variant={job.status === 'failed' ? 'destructive' : 'secondary'}
                   >
-                    {JOB_STATUS_LABEL_MAP[job.status]}
+                    {JOB_STATUS_LABEL_MAP[job.status] ?? job.status}
                   </Badge>
                 </li>
               ))}
@@ -127,4 +129,56 @@ export default async function CandidateSearchPage({
       ) : null}
     </div>
   );
+}
+
+async function loadPlanLimitsSafely(organization: Organization): Promise<{
+  organization: Organization;
+  limits: PlanLimits;
+}> {
+  try {
+    const plan = await getOrganizationPlanSafe(organization.id, organization);
+    return {
+      organization: plan.organization ?? organization,
+      limits: plan.limits ?? getPlanLimits(organization.plan),
+    };
+  } catch (error) {
+    console.error('プラン上限の取得に失敗しました', error);
+    return {
+      organization,
+      limits: getPlanLimits(organization.plan),
+    };
+  }
+}
+
+async function loadStoreSafely(
+  organizationId: string,
+  storeId: string,
+): Promise<Store | null> {
+  try {
+    return await getStore(organizationId, storeId);
+  } catch (error) {
+    console.error('店舗の取得に失敗しました', error);
+    return null;
+  }
+}
+
+async function loadRecentJobsSafely(
+  organizationId: string,
+  storeId: string,
+): Promise<SearchJob[]> {
+  try {
+    return (await listRecentSearchJobs(organizationId, storeId)) ?? [];
+  } catch (error) {
+    console.error('抽出履歴の取得に失敗しました', error);
+    return [];
+  }
+}
+
+async function loadSearchCountSafely(organizationId: string): Promise<number> {
+  try {
+    return await countSearchJobsThisMonth(organizationId);
+  } catch (error) {
+    console.error('抽出回数の集計に失敗しました', error);
+    return 0;
+  }
 }

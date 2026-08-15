@@ -66,12 +66,12 @@ export const PROPOSAL_TONE_LABELS: readonly LabelDefinition<ProposalTone>[] = [
 /** トーンごとに AI へ渡す書き分けの指示 */
 export const PROPOSAL_TONE_GUIDES: Readonly<Record<ProposalTone, string>> = {
   friendly: `Instagram の DM で送る前提。敬語は保ちつつ、堅すぎない話し言葉に近い文体にする。
-挨拶は 1 行で切り上げ、改行を多めに入れてスマホで読みやすくする。全体で 250 文字前後。
+挨拶は 1 行で切り上げ、改行を多めに入れてスマホで読みやすくする。
 「〜させていただきたく存じます」のような硬い言い回しは使わない。`,
   polite: `Web の問い合わせフォームやメールで送る前提。初対面の事業者に送るビジネス文書として整える。
-名乗り・きっかけ・提案内容・お願いしたいことの順に段落を分ける。全体で 400〜600 文字。`,
-  concise: `忙しい店主が 15 秒で読み切れる長さにする。前置きを省き、提案内容と次のアクションだけを書く。
-全体で 150 文字前後。箇条書きを 1 箇所だけ使ってよい。`,
+名乗り・きっかけ・提案内容・お願いしたいことの順に段落を分ける。丁寧語は崩さない。`,
+  concise: `忙しい店主がすぐ読み切れる密度にする。前置きを削り、メリット・具体案・次のアクションを先に書く。
+箇条書きを 1 箇所だけ使ってよい。`,
 };
 
 export const PIPELINE_STAGE_LABELS: readonly PipelineStageLabel[] = [

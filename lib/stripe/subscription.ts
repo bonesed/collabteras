@@ -24,33 +24,64 @@ const TERMINAL_STATUSES: readonly Stripe.Subscription.Status[] = [
   'incomplete_expired',
 ];
 
+const ORGANIZATION_BILLING_COLUMNS =
+  'id, plan, stripe_customer_id, stripe_subscription_id, current_period_end' as const;
+
 export interface SyncSubscriptionOptions {
   allowDowngrade?: boolean;
   planTierHint?: string | null;
 }
 
 /**
- * Stripe のサブスクリプションの状態を organizations.plan に反映する。
- * 画面が読む列はここだけ。Webhook は順不同・再送があるため、
- * イベント1件ではなく「その顧客の今の契約」から作り直す。
+ * Stripe のサブスクリプションを organizations に上書き保存する。
+ * 書き込み先は `public.organizations` のみ（subscriptions テーブルは無い）。
+ *
+ * 決済完了系イベントでは、契約が終了ステータスでない限り
+ * plan / stripe_subscription_id を必ず UPDATE する。
  */
 export async function syncSubscription(
   subscription: Stripe.Subscription,
   fallbackOrganizationId?: string | null,
   options?: SyncSubscriptionOptions,
 ): Promise<void> {
-  const organizationId =
-    (await resolveOrganizationId(subscription)) ??
-    emptyToNull(fallbackOrganizationId);
+  const allowDowngrade = options?.allowDowngrade ?? false;
+  const plan = resolvePlanFromSubscription(subscription, options?.planTierHint);
+  const customerId = customerIdOf(subscription);
 
-  if (organizationId === null) {
-    console.error(
-      `Stripe サブスクリプション ${subscription.id} に対応する組織が見つかりません。`,
-    );
+  console.log('STRIPE_SYNC_START:', {
+    subscriptionId: subscription.id,
+    status: subscription.status,
+    customerId,
+    fallbackOrganizationId: fallbackOrganizationId ?? null,
+    metadata: subscription.metadata,
+    priceId: subscription.items.data[0]?.price.id ?? null,
+    resolvedPlan: plan,
+    allowDowngrade,
+    isEntitled: isEntitled(subscription),
+    isTerminal: isTerminal(subscription),
+  });
+
+  if (isTerminal(subscription) && allowDowngrade) {
+    const organizationId =
+      (await resolveOrganizationId(subscription)) ??
+      emptyToNull(fallbackOrganizationId);
+
+    if (organizationId === null) {
+      throw new Error(
+        `終了イベントの組織が見つかりません。subscription=${subscription.id} customer=${customerId}`,
+      );
+    }
+
+    await reconcileOrganizationSubscription(organizationId, subscription, {
+      ...options,
+      allowDowngrade: true,
+    });
     return;
   }
 
-  await reconcileOrganizationSubscription(organizationId, subscription, options);
+  // checkout.session.completed / subscription.created など。
+  // 一覧 API の遅延や incomplete を待たず、受け取った契約で上書きする。
+  await persistPaidSubscription(subscription, fallbackOrganizationId, plan);
 }
 
 /**
@@ -69,7 +100,7 @@ export async function reconcileOrganizationSubscription(
   const admin = createAdminClient();
   const { data: organization, error } = await admin
     .from('organizations')
-    .select('id, plan, stripe_customer_id, stripe_subscription_id')
+    .select(ORGANIZATION_BILLING_COLUMNS)
     .eq('id', organizationId)
     .maybeSingle();
 
@@ -77,7 +108,7 @@ export async function reconcileOrganizationSubscription(
     throw new Error(`組織の取得に失敗しました: ${error.message}`);
   }
   if (organization === null) {
-    throw new Error('組織が見つかりませんでした。');
+    throw new Error(`組織が見つかりませんでした。id=${organizationId}`);
   }
 
   const customerId =
@@ -97,16 +128,14 @@ export async function reconcileOrganizationSubscription(
     entitled = pickEntitledSubscription(listed.data);
   }
 
-  if (entitled === null && hint !== undefined && isEntitled(hint)) {
-    entitled = hint;
-  }
+  const toPersist =
+    entitled ??
+    (hint !== undefined && !isTerminal(hint) ? hint : null);
 
   const resolvedPlan =
-    entitled !== null
-      ? resolvePlanFromSubscription(entitled, options?.planTierHint)
-      : hint !== undefined
-        ? resolvePlanFromSubscription(hint, options?.planTierHint)
-        : null;
+    toPersist !== null
+      ? resolvePlanFromSubscription(toPersist, options?.planTierHint)
+      : null;
 
   console.log('STRIPE_RECONCILE:', {
     organizationId,
@@ -118,48 +147,45 @@ export async function reconcileOrganizationSubscription(
     entitledStatus: entitled?.status ?? null,
     hintId: hint?.id ?? null,
     hintStatus: hint?.status ?? null,
+    toPersistId: toPersist?.id ?? null,
     resolvedPlan,
     allowDowngrade,
   });
 
-  if (entitled === null) {
-    if (!allowDowngrade) {
-      return;
-    }
-
-    // 別サブスクの終了イベントで、今の有効契約を消さない。
-    if (
-      hint !== undefined &&
-      isTerminal(hint) &&
-      organization.stripe_subscription_id !== null &&
-      hint.id !== organization.stripe_subscription_id
-    ) {
-      console.warn(
-        'STRIPE_RECONCILE: 別契約の終了イベントのため plan は変更しません',
-        { hintId: hint.id, kept: organization.stripe_subscription_id },
-      );
-      return;
-    }
-
-    // Checkout 直後の incomplete やイベント順不同で、有効契約を消さない。
-    if (hint !== undefined && !isTerminal(hint)) {
-      if (resolvedPlan !== null) {
-        await updateOrganizationBilling(organizationId, {
-          plan: resolvedPlan,
-          stripe_subscription_id: hint.id,
-          current_period_end: periodEndOf(hint),
-        });
-      }
-      return;
-    }
+  if (toPersist !== null) {
+    await persistPaidSubscription(toPersist, organizationId, resolvedPlan);
+    return;
   }
 
-  await applySubscriptionState(
-    organizationId,
-    entitled,
-    options?.planTierHint,
-    { allowDowngrade, currentPlan: organization.plan },
-  );
+  if (!allowDowngrade) {
+    console.warn(
+      'STRIPE_RECONCILE: 有効契約が見つからないため plan は変更しません',
+      { organizationId, currentPlan: organization.plan },
+    );
+    return;
+  }
+
+  if (
+    hint !== undefined &&
+    isTerminal(hint) &&
+    organization.stripe_subscription_id !== null &&
+    hint.id !== organization.stripe_subscription_id
+  ) {
+    console.warn(
+      'STRIPE_RECONCILE: 別契約の終了イベントのため plan は変更しません',
+      { hintId: hint.id, kept: organization.stripe_subscription_id },
+    );
+    return;
+  }
+
+  await updateOrganizationBilling({
+    match: { id: organizationId },
+    values: {
+      plan: 'free',
+      stripe_subscription_id: null,
+      current_period_end: null,
+    },
+  });
 }
 
 /**
@@ -186,6 +212,104 @@ export async function healOrganizationPlanFromStripe(
     allowDowngrade: false,
   });
   return true;
+}
+
+/**
+ * 決済済み（または決済進行中）の契約を organizations に上書き保存する。
+ * 主キーは stripe_customer_id。未保存なら organization_id で特定して顧客 ID も書く。
+ */
+async function persistPaidSubscription(
+  subscription: Stripe.Subscription,
+  fallbackOrganizationId: string | null | undefined,
+  plan: PlanTier | null,
+): Promise<void> {
+  const customerId = customerIdOf(subscription);
+  const admin = createAdminClient();
+
+  console.log('STRIPE_ORG_LOOKUP:', {
+    customerId,
+    fallbackOrganizationId: fallbackOrganizationId ?? null,
+    metadataOrganizationId: subscription.metadata.organization_id ?? null,
+  });
+
+  const byCustomer = await admin
+    .from('organizations')
+    .select(ORGANIZATION_BILLING_COLUMNS)
+    .eq('stripe_customer_id', customerId)
+    .maybeSingle();
+
+  console.log('STRIPE_ORG_BY_CUSTOMER:', {
+    customerId,
+    data: byCustomer.data,
+    error: byCustomer.error,
+  });
+
+  if (byCustomer.error !== null) {
+    throw new Error(
+      `stripe_customer_id での組織検索に失敗しました: ${byCustomer.error.message}`,
+    );
+  }
+
+  let organization = byCustomer.data;
+  let match: { stripe_customer_id: string } | { id: string } = {
+    stripe_customer_id: customerId,
+  };
+
+  if (organization === null) {
+    const orgId =
+      emptyToNull(subscription.metadata.organization_id) ??
+      emptyToNull(fallbackOrganizationId);
+
+    if (orgId === null) {
+      throw new Error(
+        `組織が見つかりません。stripe_customer_id=${customerId} subscription=${subscription.id}`,
+      );
+    }
+
+    const byId = await admin
+      .from('organizations')
+      .select(ORGANIZATION_BILLING_COLUMNS)
+      .eq('id', orgId)
+      .maybeSingle();
+
+    console.log('STRIPE_ORG_BY_ID:', {
+      orgId,
+      data: byId.data,
+      error: byId.error,
+    });
+
+    if (byId.error !== null) {
+      throw new Error(`組織IDでの検索に失敗しました: ${byId.error.message}`);
+    }
+    if (byId.data === null) {
+      throw new Error(`組織 ${orgId} が存在しません。`);
+    }
+
+    organization = byId.data;
+    match = { id: orgId };
+  }
+
+  if (plan === null) {
+    console.error(
+      'STRIPE_PLAN_UNRESOLVED: Price / metadata からプランを特定できません。契約 ID のみ保存します。',
+      {
+        subscriptionId: subscription.id,
+        priceId: subscription.items.data[0]?.price.id ?? null,
+        metadata: subscription.metadata,
+        currentPlan: organization.plan,
+      },
+    );
+  }
+
+  await updateOrganizationBilling({
+    match,
+    values: {
+      plan: plan ?? undefined,
+      stripe_customer_id: customerId,
+      stripe_subscription_id: subscription.id,
+      current_period_end: periodEndOf(subscription),
+    },
+  });
 }
 
 function isEntitled(subscription: Stripe.Subscription): boolean {
@@ -240,11 +364,16 @@ function resolvePlanFromSubscription(
 
 function periodEndOf(subscription: Stripe.Subscription): string | null {
   const item = subscription.items.data[0];
-  const unix =
+  const fromItem =
     item !== undefined && typeof item.current_period_end === 'number'
       ? item.current_period_end
       : null;
 
+  const legacy = (subscription as { current_period_end?: number })
+    .current_period_end;
+  const fromSubscription = typeof legacy === 'number' ? legacy : null;
+
+  const unix = fromItem ?? fromSubscription;
   if (unix === null) {
     return null;
   }
@@ -252,89 +381,53 @@ function periodEndOf(subscription: Stripe.Subscription): string | null {
   return new Date(unix * 1000).toISOString();
 }
 
-async function applySubscriptionState(
-  organizationId: string,
-  subscription: Stripe.Subscription | null,
-  planTierHint?: string | null,
-  context?: { allowDowngrade: boolean; currentPlan: string },
-): Promise<void> {
-  if (subscription === null || !isEntitled(subscription)) {
-    if (context?.allowDowngrade !== true) {
-      console.warn(
-        'STRIPE_RECONCILE: 有効契約が見つからないため plan は変更しません',
-        { organizationId, currentPlan: context?.currentPlan },
-      );
-      return;
-    }
-    await updateOrganizationBilling(organizationId, {
-      plan: 'free',
-      stripe_subscription_id: null,
-      current_period_end: null,
-    });
-    return;
-  }
-
-  const tier = resolvePlanFromSubscription(subscription, planTierHint);
-  const periodEnd = periodEndOf(subscription);
-
-  if (tier === null) {
-    // 有効契約があるのに Price が未知。free に戻さず、契約 ID だけ残す。
-    console.error(
-      `有効なサブスクリプション ${subscription.id} の Price をプランに対応づけられませんでした。plan 列は変更しません。`,
-      {
-        priceId: subscription.items.data[0]?.price.id ?? null,
-        metadata: subscription.metadata,
-      },
-    );
-    await updateOrganizationBilling(organizationId, {
-      stripe_subscription_id: subscription.id,
-      current_period_end: periodEnd,
-    });
-    return;
-  }
-
-  await updateOrganizationBilling(organizationId, {
-    plan: tier,
-    stripe_subscription_id: subscription.id,
-    current_period_end: periodEnd,
-  });
-}
-
-async function updateOrganizationBilling(
-  organizationId: string,
+async function updateOrganizationBilling(input: {
+  match: { id: string } | { stripe_customer_id: string };
   values: {
     plan?: PlanTier;
+    stripe_customer_id?: string;
     stripe_subscription_id: string | null;
     current_period_end: string | null;
-  },
-): Promise<void> {
-  console.log('ORG_BILLING_UPDATE:', { organizationId, values });
+  };
+}): Promise<void> {
+  const payload = {
+    ...input.values,
+    updated_at: new Date().toISOString(),
+  };
 
-  const { error } = await createAdminClient()
-    .from('organizations')
-    .update({
-      ...values,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', organizationId);
+  console.log('ORG_BILLING_UPDATE:', { match: input.match, values: payload });
+
+  const admin = createAdminClient();
+  let query = admin.from('organizations').update(payload);
+
+  if ('id' in input.match) {
+    query = query.eq('id', input.match.id);
+  } else {
+    query = query.eq('stripe_customer_id', input.match.stripe_customer_id);
+  }
+
+  const { data, error } = await query
+    .select(ORGANIZATION_BILLING_COLUMNS)
+    .maybeSingle();
+
+  console.log('ORG_BILLING_UPDATE_RESULT:', { data, error });
 
   if (error !== null) {
     throw new Error(`組織のプラン更新に失敗しました: ${error.message}`);
   }
+  if (data === null) {
+    throw new Error(
+      `organizations の更新が 0 件でした。match=${JSON.stringify(input.match)}`,
+    );
+  }
 }
 
 /**
- * Checkout 経由なら metadata に組織 ID が入っている。
- * Stripe ダッシュボードから直接作られた場合に備え、顧客 ID からも引けるようにする。
+ * stripe_customer_id を優先し、無ければ metadata / Checkout の組織 ID で引く。
  */
 async function resolveOrganizationId(
   subscription: Stripe.Subscription,
 ): Promise<string | null> {
-  const fromMetadata = subscription.metadata.organization_id;
-  if (typeof fromMetadata === 'string' && fromMetadata !== '') {
-    return fromMetadata;
-  }
-
   const customerId = customerIdOf(subscription);
 
   const { data, error } = await createAdminClient()
@@ -343,11 +436,26 @@ async function resolveOrganizationId(
     .eq('stripe_customer_id', customerId)
     .maybeSingle();
 
+  console.log('STRIPE_RESOLVE_ORG:', {
+    customerId,
+    metadataOrganizationId: subscription.metadata.organization_id ?? null,
+    data,
+    error,
+  });
+
   if (error !== null) {
     throw new Error(`組織の特定に失敗しました: ${error.message}`);
   }
+  if (data?.id !== undefined) {
+    return data.id;
+  }
 
-  return data?.id ?? null;
+  const fromMetadata = subscription.metadata.organization_id;
+  if (typeof fromMetadata === 'string' && fromMetadata !== '') {
+    return fromMetadata;
+  }
+
+  return null;
 }
 
 function customerIdOf(subscription: Stripe.Subscription): string {

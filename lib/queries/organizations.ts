@@ -13,7 +13,10 @@ import { tryCreateAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import type { Organization, PlanDefinition, PlanLimits, PlanTier } from '@/types';
 
-/** organizations テーブルから都度読む列。plan は Cookie / user_metadata を使わない。 */
+/**
+ * Stripe Webhook が更新する列と完全一致させる。
+ * 書き込み先は `public.organizations.plan`（subscriptions テーブルは存在しない）。
+ */
 const ORGANIZATION_COLUMNS =
   'id, name, plan, stripe_customer_id, stripe_subscription_id, current_period_end, created_at, updated_at' as const;
 
@@ -34,13 +37,74 @@ function planViewFromOrganization(
   };
 }
 
+function asOrganization(row: Organization): Organization {
+  return {
+    ...row,
+    plan: resolvePlanTier(row.plan),
+  };
+}
+
 /**
- * ログインユーザー権限で organizations を SELECT する。
- * Cookie セッションが無いと RLS で 0 件になる。
+ * Webhook と同じ `organizations.plan` だけを SELECT する。
+ * 1. service role（RLS 回避。Webhook の書き込みと同じ経路）
+ * 2. だめならログインユーザー権限
+ * 'free' へのフォールバックはしない。
  */
-async function fetchOrganizationViaUser(
+const fetchPlanColumn = cache(async function fetchPlanColumn(
+  organizationId: string,
+): Promise<string> {
+  const admin = tryCreateAdminClient();
+  if (admin !== null) {
+    const { data, error } = await admin
+      .from('organizations')
+      .select('plan')
+      .eq('id', organizationId)
+      .maybeSingle();
+
+    if (error !== null) {
+      console.error('organizations.plan の service role SELECT に失敗しました', error);
+    } else if (data?.plan) {
+      return data.plan;
+    }
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('organizations')
+    .select('plan')
+    .eq('id', organizationId)
+    .maybeSingle();
+
+  if (error !== null) {
+    throw new Error(`organizations.plan の取得に失敗しました: ${error.message}`);
+  }
+  if (data === null || !data.plan) {
+    throw new Error(
+      'organizations.plan を取得できませんでした。RLS または service role を確認してください。',
+    );
+  }
+
+  return data.plan;
+});
+
+async function fetchOrganizationRecord(
   organizationId: string,
 ): Promise<Organization> {
+  const admin = tryCreateAdminClient();
+  if (admin !== null) {
+    const { data, error } = await admin
+      .from('organizations')
+      .select(ORGANIZATION_COLUMNS)
+      .eq('id', organizationId)
+      .maybeSingle();
+
+    if (error !== null) {
+      console.error('organizations の service role SELECT に失敗しました', error);
+    } else if (data !== null) {
+      return asOrganization(data);
+    }
+  }
+
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('organizations')
@@ -55,44 +119,12 @@ async function fetchOrganizationViaUser(
     throw new Error('組織が見つかりませんでした。');
   }
 
-  return {
-    ...data,
-    plan: resolvePlanTier(data.plan),
-  };
+  return asOrganization(data);
 }
 
 /**
- * service role が使えるときだけ、Webhook と同じ経路で最新行を読む。
- */
-async function fetchOrganizationViaAdmin(
-  organizationId: string,
-): Promise<Organization | null> {
-  const admin = tryCreateAdminClient();
-  if (admin === null) {
-    return null;
-  }
-
-  const { data, error } = await admin
-    .from('organizations')
-    .select(ORGANIZATION_COLUMNS)
-    .eq('id', organizationId)
-    .maybeSingle();
-
-  if (error !== null || data === null) {
-    return null;
-  }
-
-  return {
-    ...data,
-    plan: resolvePlanTier(data.plan),
-  };
-}
-
-/**
- * organizations.plan の読み取り口。
- * 1. 可能なら service role（Webhook と同じ最新行）
- * 2. だめならログインユーザー権限の SELECT
- * 同一リクエスト内の layout / page から複数回呼ばれるため cache する。
+ * organizations 行の読み取り口。
+ * plan 列は専用 SELECT で取り直し、他列の失敗で 'free' に落ちないようにする。
  */
 const fetchOrganizationRow = cache(async function fetchOrganizationRow(
   organizationId: string,
@@ -100,12 +132,15 @@ const fetchOrganizationRow = cache(async function fetchOrganizationRow(
   noStore();
   await connection();
 
-  const fromAdmin = await fetchOrganizationViaAdmin(organizationId);
-  if (fromAdmin !== null) {
-    return fromAdmin;
-  }
+  const [record, plan] = await Promise.all([
+    fetchOrganizationRecord(organizationId),
+    fetchPlanColumn(organizationId),
+  ]);
 
-  return fetchOrganizationViaUser(organizationId);
+  return {
+    ...record,
+    plan: resolvePlanTier(plan),
+  };
 });
 
 /**
@@ -119,14 +154,15 @@ export async function getOrganization(
 }
 
 /**
- * organizations.plan だけを直接 SELECT する。
+ * `organizations.plan` だけを直接 SELECT する。
  * session.user.user_metadata や JWT 上のプラン値は参照しない。
  */
 export async function selectOrganizationPlan(
   organizationId: string,
 ): Promise<PlanTier> {
-  const organization = await fetchOrganizationRow(organizationId);
-  return resolvePlanTier(organization.plan);
+  noStore();
+  await connection();
+  return resolvePlanTier(await fetchPlanColumn(organizationId));
 }
 
 /**
@@ -160,6 +196,6 @@ export async function getOrganizationPlanSafe(
     return planViewFromOrganization(fallback);
   }
 
-  const organization = await fetchOrganizationViaUser(organizationId);
+  const organization = await fetchOrganizationRecord(organizationId);
   return planViewFromOrganization(organization);
 }

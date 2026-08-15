@@ -17,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { requireSessionContext } from '@/lib/auth';
 import { getPlanDefinition, getPlanLimits } from '@/lib/plans';
 import { getDashboardSummary } from '@/lib/queries/dashboard';
+import { selectOrganizationPlan } from '@/lib/queries/organizations';
 import { countProposalsThisMonth, listProposals } from '@/lib/queries/proposals';
 import { countSearchJobsThisMonth } from '@/lib/queries/search-jobs';
 
@@ -28,15 +29,16 @@ export const fetchCache = 'force-no-store';
 
 export default async function DashboardPage() {
   const { organization, profile } = await requireSessionContext();
-  const [summary, recentProposals, searchCount, proposalCount] =
+  const [plan, summary, recentProposals, searchCount, proposalCount] =
     await Promise.all([
+      selectOrganizationPlan(organization.id),
       getDashboardSummary(organization.id),
       listProposals(organization.id, { limit: 5 }),
       countSearchJobsThisMonth(organization.id),
       countProposalsThisMonth(organization.id),
     ]);
-  const currentPlan = getPlanDefinition(organization.plan);
-  const limits = getPlanLimits(organization.plan);
+  const currentPlan = getPlanDefinition(plan);
+  const limits = getPlanLimits(plan);
   const displayName = profile.full_name ?? profile.email;
 
   return (

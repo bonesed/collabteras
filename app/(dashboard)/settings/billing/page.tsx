@@ -20,6 +20,7 @@ import { requireSessionContext } from '@/lib/auth';
 import { PLANS } from '@/lib/constants';
 import { formatDate, formatJpy } from '@/lib/format';
 import { getPlanDefinition } from '@/lib/plans';
+import { selectOrganizationPlan } from '@/lib/queries/organizations';
 import { isStripeConfigured } from '@/lib/stripe/client';
 import { purchasablePlanTiers } from '@/lib/stripe/plans';
 import type { MemberRole, PlanDefinition, PlanTier } from '@/types';
@@ -47,8 +48,9 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
     requireSessionContext(),
   ]);
 
-  // プランは organizations.plan を読むだけ。Stripe 同期は Webhook に任せる。
-  const currentPlan = getPlanDefinition(organization.plan);
+  // Webhook が書く organizations.plan を service role 優先で都度読む。
+  const currentTier = await selectOrganizationPlan(organization.id);
+  const currentPlan = getPlanDefinition(currentTier);
   const canManage = BILLING_ROLES.includes(role);
   const stripeReady = isStripeConfigured();
   const purchasable = new Set<string>(stripeReady ? purchasablePlanTiers() : []);
@@ -126,7 +128,7 @@ export default async function BillingPage({ searchParams }: BillingPageProps) {
             <PlanCard
               key={tier}
               plan={plan}
-              isCurrent={tier === organization.plan}
+              isCurrent={tier === currentTier}
               canPurchase={canManage && purchasable.has(tier)}
               hasSubscription={organization.stripe_customer_id !== null}
             />

@@ -17,6 +17,18 @@ const ENTITLED_STATUSES: readonly Stripe.Subscription.Status[] = [
   'past_due',
 ];
 
+/** 契約が確定的に終わったときだけ free へ戻す。incomplete では消さない。 */
+const TERMINAL_STATUSES: readonly Stripe.Subscription.Status[] = [
+  'canceled',
+  'unpaid',
+  'incomplete_expired',
+];
+
+export interface SyncSubscriptionOptions {
+  allowDowngrade?: boolean;
+  planTierHint?: string | null;
+}
+
 /**
  * Stripe のサブスクリプションの状態を organizations.plan に反映する。
  * 画面が読む列はここだけ。Webhook は順不同・再送があるため、
@@ -25,6 +37,7 @@ const ENTITLED_STATUSES: readonly Stripe.Subscription.Status[] = [
 export async function syncSubscription(
   subscription: Stripe.Subscription,
   fallbackOrganizationId?: string | null,
+  options?: SyncSubscriptionOptions,
 ): Promise<void> {
   const organizationId =
     (await resolveOrganizationId(subscription)) ??
@@ -37,7 +50,7 @@ export async function syncSubscription(
     return;
   }
 
-  await reconcileOrganizationSubscription(organizationId, subscription);
+  await reconcileOrganizationSubscription(organizationId, subscription, options);
 }
 
 /**
@@ -50,7 +63,7 @@ export async function syncSubscription(
 export async function reconcileOrganizationSubscription(
   organizationId: string,
   hint?: Stripe.Subscription,
-  options?: { allowDowngrade?: boolean },
+  options?: SyncSubscriptionOptions,
 ): Promise<void> {
   const allowDowngrade = options?.allowDowngrade ?? true;
   const admin = createAdminClient();
@@ -86,15 +99,33 @@ export async function reconcileOrganizationSubscription(
     entitled = hint;
   }
 
-  if (entitled === null && !allowDowngrade) {
-    return;
+  if (entitled === null) {
+    if (!allowDowngrade) {
+      return;
+    }
+    // Checkout 直後の incomplete やイベント順不同で、有効契約を消さない。
+    if (hint !== undefined && !isTerminal(hint)) {
+      const hintedPlan = resolvePlanFromSubscription(hint, options?.planTierHint);
+      if (hintedPlan !== null) {
+        await updateOrganizationBilling(organizationId, {
+          plan: hintedPlan,
+          stripe_subscription_id: hint.id,
+          current_period_end: periodEndOf(hint),
+        });
+      }
+      return;
+    }
   }
 
-  await applySubscriptionState(organizationId, entitled);
+  await applySubscriptionState(organizationId, entitled, options?.planTierHint);
 }
 
 function isEntitled(subscription: Stripe.Subscription): boolean {
   return ENTITLED_STATUSES.includes(subscription.status);
+}
+
+function isTerminal(subscription: Stripe.Subscription): boolean {
+  return TERMINAL_STATUSES.includes(subscription.status);
 }
 
 function pickEntitledSubscription(
@@ -117,7 +148,12 @@ function pickEntitledSubscription(
  */
 function resolvePlanFromSubscription(
   subscription: Stripe.Subscription,
+  planTierHint?: string | null,
 ): PlanTier | null {
+  if (typeof planTierHint === 'string' && isPaidPlanTier(planTierHint)) {
+    return planTierHint;
+  }
+
   const item = subscription.items.data[0];
   if (item !== undefined) {
     const fromPrice = planTierForPrice(item.price.id);
@@ -151,6 +187,7 @@ function periodEndOf(subscription: Stripe.Subscription): string | null {
 async function applySubscriptionState(
   organizationId: string,
   subscription: Stripe.Subscription | null,
+  planTierHint?: string | null,
 ): Promise<void> {
   if (subscription === null || !isEntitled(subscription)) {
     await updateOrganizationBilling(organizationId, {
@@ -161,7 +198,7 @@ async function applySubscriptionState(
     return;
   }
 
-  const tier = resolvePlanFromSubscription(subscription);
+  const tier = resolvePlanFromSubscription(subscription, planTierHint);
   const periodEnd = periodEndOf(subscription);
 
   if (tier === null) {

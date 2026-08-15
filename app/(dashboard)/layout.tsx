@@ -7,6 +7,7 @@ import { UserMenu } from '@/components/features/layout/user-menu';
 import { Badge } from '@/components/ui/badge';
 import { requireSessionContext } from '@/lib/auth';
 import { getPlanDefinition } from '@/lib/plans';
+import { selectOrganizationPlan } from '@/lib/queries/organizations';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -16,7 +17,9 @@ export default async function DashboardLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const { profile, organization } = await requireSessionContext();
-  const currentPlan = getPlanDefinition(organization.plan);
+  // Webhook が書く organizations.plan を service role 優先で都度読む。
+  const plan = await selectOrganizationPlan(organization.id);
+  const currentPlan = getPlanDefinition(plan);
 
   return (
     <div className="flex min-h-dvh">

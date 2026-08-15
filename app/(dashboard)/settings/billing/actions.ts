@@ -52,6 +52,10 @@ export async function startCheckout(
       line_items: [{ price: priceId, quantity: 1 }],
       allow_promotion_codes: true,
       client_reference_id: organization.id,
+      metadata: {
+        organization_id: organization.id,
+        plan_tier: planTier,
+      },
       // Webhook 側で組織を特定するための紐づけ。顧客 ID からの逆引きも用意してある。
       subscription_data: {
         metadata: {

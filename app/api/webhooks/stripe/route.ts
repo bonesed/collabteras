@@ -55,8 +55,9 @@ export async function POST(request: Request) {
 async function syncAndRevalidate(
   subscription: Stripe.Subscription,
   fallbackOrganizationId?: string | null,
+  options?: { allowDowngrade?: boolean; planTierHint?: string | null },
 ): Promise<void> {
-  await syncSubscription(subscription, fallbackOrganizationId);
+  await syncSubscription(subscription, fallbackOrganizationId, options);
   // ダッシュボード全体がプラン表示を持つため、layout から再検証する。
   revalidatePath('/', 'layout');
   revalidatePath('/dashboard');
@@ -78,6 +79,11 @@ async function handleEvent(stripe: Stripe, event: Stripe.Event): Promise<void> {
       await syncAndRevalidate(
         await stripe.subscriptions.retrieve(subscriptionId),
         session.client_reference_id,
+        {
+          // Checkout 完了時点では incomplete のことがある。free に戻さない。
+          allowDowngrade: false,
+          planTierHint: session.metadata?.plan_tier,
+        },
       );
       return;
     }

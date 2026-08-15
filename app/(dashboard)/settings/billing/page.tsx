@@ -1,5 +1,6 @@
 import { ArrowLeft, Check } from 'lucide-react';
 import type { Metadata } from 'next';
+import { cookies } from 'next/headers';
 import Link from 'next/link';
 
 import {
@@ -16,11 +17,13 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+
 import { requireSessionContext } from '@/lib/auth';
 import { PLANS } from '@/lib/constants';
 import { formatDate, formatJpy } from '@/lib/format';
 import { getPlanDefinition } from '@/lib/plans';
 import { selectOrganizationPlan } from '@/lib/queries/organizations';
+import { createClient } from '@/lib/supabase/server';
 import { isStripeConfigured } from '@/lib/stripe/client';
 import { purchasablePlanTiers } from '@/lib/stripe/plans';
 import type { MemberRole, PlanDefinition, PlanTier } from '@/types';
@@ -43,12 +46,16 @@ interface BillingPageProps {
 }
 
 export default async function BillingPage({ searchParams }: BillingPageProps) {
+  await cookies();
+  const supabase = await createClient();
+  await supabase.auth.getUser();
+
   const [{ checkout }, { organization, role }] = await Promise.all([
     searchParams,
     requireSessionContext(),
   ]);
 
-  // Webhook が書く organizations.plan を service role 優先で都度読む。
+  // Webhook が書く organizations.plan を service role で都度読む（RLS バイパス）。
   const currentTier = await selectOrganizationPlan(organization.id);
   const currentPlan = getPlanDefinition(currentTier);
   const canManage = BILLING_ROLES.includes(role);

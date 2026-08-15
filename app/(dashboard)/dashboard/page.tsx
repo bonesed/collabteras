@@ -6,6 +6,7 @@ import {
   Store as StoreIcon,
 } from 'lucide-react';
 import type { Metadata } from 'next';
+import { cookies } from 'next/headers';
 import Link from 'next/link';
 
 import { StatCard } from '@/components/features/dashboard/stat-card';
@@ -14,12 +15,14 @@ import { PageHeader } from '@/components/features/layout/page-header';
 import { ProposalStatusBadge } from '@/components/features/proposals/proposal-status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
 import { requireSessionContext } from '@/lib/auth';
 import { getPlanDefinition, getPlanLimits } from '@/lib/plans';
 import { getDashboardSummary } from '@/lib/queries/dashboard';
 import { selectOrganizationPlan } from '@/lib/queries/organizations';
 import { countProposalsThisMonth, listProposals } from '@/lib/queries/proposals';
 import { countSearchJobsThisMonth } from '@/lib/queries/search-jobs';
+import { createClient } from '@/lib/supabase/server';
 
 export const metadata: Metadata = { title: 'ダッシュボード' };
 
@@ -28,6 +31,11 @@ export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
 export default async function DashboardPage() {
+  // 認証 Cookie を読み、JWT を Supabase へ渡してからプランを取る。
+  await cookies();
+  const supabase = await createClient();
+  await supabase.auth.getUser();
+
   const { organization, profile } = await requireSessionContext();
   const [plan, summary, recentProposals, searchCount, proposalCount] =
     await Promise.all([

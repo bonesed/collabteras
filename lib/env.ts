@@ -182,7 +182,20 @@ function isLocalhostUrl(value: string): boolean {
 
 export function serverEnv(): ServerEnv {
   if (cachedServerEnv === null) {
-    cachedServerEnv = serverSchema.parse(process.env);
+    // Next.js は `process.env.X` の個別参照だけを静的置換する。
+    // `parse(process.env)` だと Server Component 側で service role キーが
+    // undefined になり、RLS 回避の読み取りが黙って落ちる。
+    cachedServerEnv = serverSchema.parse({
+      GOOGLE_MAPS_API_KEY: process.env.GOOGLE_MAPS_API_KEY,
+      SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+      OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+      GOOGLE_GEMINI_API_KEY: process.env.GOOGLE_GEMINI_API_KEY,
+      STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+      STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
+      STRIPE_PRICE_ID_LIGHT: process.env.STRIPE_PRICE_ID_LIGHT,
+      STRIPE_PRICE_ID_STANDARD: process.env.STRIPE_PRICE_ID_STANDARD,
+      STRIPE_PRICE_ID_PRO: process.env.STRIPE_PRICE_ID_PRO,
+    });
   }
   return cachedServerEnv;
 }

@@ -2,7 +2,7 @@ import 'server-only';
 
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
 
-import { publicEnv, serverEnv } from '@/lib/env';
+import { publicEnv } from '@/lib/env';
 import type { Database } from '@/types/database';
 
 /**
@@ -11,9 +11,11 @@ import type { Database } from '@/types/database';
  * ユーザー起点の処理では絶対に使わない。
  */
 export function createAdminClient() {
-  const serviceRoleKey = serverEnv().SUPABASE_SERVICE_ROLE_KEY;
+  // `process.env.SUPABASE_SERVICE_ROLE_KEY` を直接読む。
+  // serverEnv() 経由だと、Next.js の env 置換漏れで undefined になることがある。
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
 
-  if (serviceRoleKey === undefined) {
+  if (serviceRoleKey === undefined || serviceRoleKey === '') {
     throw new Error(
       'SUPABASE_SERVICE_ROLE_KEY が設定されていません。Stripe Webhook などの管理操作に必要です。',
     );
@@ -40,8 +42,8 @@ export function createAdminClient() {
  */
 export function tryCreateAdminClient() {
   try {
-    const serviceRoleKey = serverEnv().SUPABASE_SERVICE_ROLE_KEY;
-    if (serviceRoleKey === undefined) {
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    if (serviceRoleKey === undefined || serviceRoleKey === '') {
       return null;
     }
     return createAdminClient();

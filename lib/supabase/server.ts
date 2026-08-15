@@ -17,7 +17,7 @@ export async function createClient() {
   const cookieStore = await cookies();
   const env = publicEnv();
 
-  return createServerClient<Database>(
+  const supabase = createServerClient<Database>(
     env.NEXT_PUBLIC_SUPABASE_URL,
     env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     {
@@ -43,4 +43,10 @@ export async function createClient() {
       },
     },
   );
+
+  // Cookie 上の JWT を Authorization に載せる。
+  // これを呼ばないと PostgREST の auth.uid() が null になり、RLS で 0 件になる。
+  await supabase.auth.getUser();
+
+  return supabase;
 }

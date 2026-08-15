@@ -1,3 +1,4 @@
+import { cookies } from 'next/headers';
 import Link from 'next/link';
 
 import { Logo } from '@/components/brand/logo';
@@ -8,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { requireSessionContext } from '@/lib/auth';
 import { getPlanDefinition } from '@/lib/plans';
 import { selectOrganizationPlan } from '@/lib/queries/organizations';
+import { createClient } from '@/lib/supabase/server';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -16,8 +18,13 @@ export const fetchCache = 'force-no-store';
 export default async function DashboardLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  // 認証 Cookie を読み、JWT を Supabase へ渡してからプランを取る。
+  await cookies();
+  const supabase = await createClient();
+  await supabase.auth.getUser();
+
   const { profile, organization } = await requireSessionContext();
-  // Webhook が書く organizations.plan を service role 優先で都度読む。
+  // Webhook が書く organizations.plan を service role で都度読む（RLS バイパス）。
   const plan = await selectOrganizationPlan(organization.id);
   const currentPlan = getPlanDefinition(plan);
 

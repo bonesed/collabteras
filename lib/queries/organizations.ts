@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { unstable_noStore as noStore } from 'next/cache';
+import { cookies } from 'next/headers';
 import { connection } from 'next/server';
 import { cache } from 'react';
 
@@ -9,7 +10,7 @@ import {
   getPlanLimits,
   resolvePlanTier,
 } from '@/lib/plans';
-import { tryCreateAdminClient } from '@/lib/supabase/admin';
+import { createAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import type { Organization, PlanDefinition, PlanLimits, PlanTier } from '@/types';
 
@@ -45,35 +46,33 @@ function asOrganization(row: Organization): Organization {
 }
 
 /**
+ * 認証 Cookie を読み、JWT を PostgREST に載せる。
+ * これを省略すると auth.uid() が null になり、RLS で organizations が 0 件になる。
+ */
+async function bindAuthCookies(): Promise<void> {
+  await cookies();
+  const supabase = await createClient();
+  await supabase.auth.getUser();
+}
+
+/**
  * Webhook と同じ `organizations.plan` だけを SELECT する。
- * 1. service role（RLS 回避。Webhook の書き込みと同じ経路）
- * 2. だめならログインユーザー権限
+ * リリース優先のため、この読み取りは service role（RLS 完全バイパス）固定。
  * 'free' へのフォールバックはしない。
  */
 const fetchPlanColumn = cache(async function fetchPlanColumn(
   organizationId: string,
 ): Promise<string> {
-  const admin = tryCreateAdminClient();
-  if (admin !== null) {
-    const { data, error } = await admin
-      .from('organizations')
-      .select('plan')
-      .eq('id', organizationId)
-      .maybeSingle();
+  await bindAuthCookies();
 
-    if (error !== null) {
-      console.error('organizations.plan の service role SELECT に失敗しました', error);
-    } else if (data?.plan) {
-      return data.plan;
-    }
-  }
-
-  const supabase = await createClient();
-  const { data, error } = await supabase
+  const admin = createAdminClient();
+  const { data, error } = await admin
     .from('organizations')
     .select('plan')
     .eq('id', organizationId)
     .maybeSingle();
+
+  console.log('DB_FETCH_RESULT:', { data, error });
 
   if (error !== null) {
     throw new Error(`organizations.plan の取得に失敗しました: ${error.message}`);
@@ -90,27 +89,16 @@ const fetchPlanColumn = cache(async function fetchPlanColumn(
 async function fetchOrganizationRecord(
   organizationId: string,
 ): Promise<Organization> {
-  const admin = tryCreateAdminClient();
-  if (admin !== null) {
-    const { data, error } = await admin
-      .from('organizations')
-      .select(ORGANIZATION_COLUMNS)
-      .eq('id', organizationId)
-      .maybeSingle();
+  await bindAuthCookies();
 
-    if (error !== null) {
-      console.error('organizations の service role SELECT に失敗しました', error);
-    } else if (data !== null) {
-      return asOrganization(data);
-    }
-  }
-
-  const supabase = await createClient();
-  const { data, error } = await supabase
+  const admin = createAdminClient();
+  const { data, error } = await admin
     .from('organizations')
     .select(ORGANIZATION_COLUMNS)
     .eq('id', organizationId)
     .maybeSingle();
+
+  console.log('DB_FETCH_RESULT:', { data, error });
 
   if (error !== null) {
     throw new Error(`組織の取得に失敗しました: ${error.message}`);

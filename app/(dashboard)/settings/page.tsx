@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { cookies } from 'next/headers';
 import Link from 'next/link';
 
 import { PageHeader } from '@/components/features/layout/page-header';
@@ -15,6 +16,7 @@ import { requireSessionContext } from '@/lib/auth';
 import { formatJpy } from '@/lib/format';
 import { getPlanDefinition } from '@/lib/plans';
 import { selectOrganizationPlan } from '@/lib/queries/organizations';
+import { createClient } from '@/lib/supabase/server';
 
 export const metadata: Metadata = { title: '設定' };
 
@@ -29,6 +31,10 @@ const ROLE_LABELS = {
 } as const;
 
 export default async function SettingsPage() {
+  await cookies();
+  const supabase = await createClient();
+  await supabase.auth.getUser();
+
   const { organization, profile, role } = await requireSessionContext();
   const currentPlan = getPlanDefinition(
     await selectOrganizationPlan(organization.id),

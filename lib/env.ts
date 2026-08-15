@@ -21,13 +21,44 @@ const supabaseUrlSchema = z
 const PRODUCTION_APP_URL = 'https://collabteras.vercel.app';
 const LOCAL_APP_URL = 'http://localhost:3000';
 
+/**
+ * 未設定・空文字・空白・不正 URL をすべて公開 URL に寄せる。
+ * `.url()` は使わない。Vercel 上の値の揺れで Zod が throw しないこと。
+ */
+function coerceSiteUrl(value: unknown): string {
+  if (typeof value !== 'string') {
+    return PRODUCTION_APP_URL;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    return PRODUCTION_APP_URL;
+  }
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.origin;
+    }
+  } catch {
+    // 不正な値は公開 URL にフォールバックする
+  }
+
+  return PRODUCTION_APP_URL;
+}
+
+function readSiteUrlFromProcessEnv(): string {
+  return coerceSiteUrl(
+    process.env.NEXT_PUBLIC_APP_URL ||
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      PRODUCTION_APP_URL,
+  );
+}
+
 const publicSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: supabaseUrlSchema,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
-  NEXT_PUBLIC_SITE_URL: z
-    .string()
-    .url()
-    .default(isProductionRuntime() ? PRODUCTION_APP_URL : LOCAL_APP_URL),
+  NEXT_PUBLIC_SITE_URL: z.string().catch(PRODUCTION_APP_URL),
 });
 
 /**
@@ -62,12 +93,26 @@ let cachedServerEnv: ServerEnv | null = null;
 export function publicEnv(): PublicEnv {
   if (cachedPublicEnv === null) {
     // Next.js はビルド時に process.env.X を静的置換するため、個別に列挙して渡す。
-    cachedPublicEnv = publicSchema.parse({
+    // SITE_URL はパース前に必ず合法な文字列へ正規化し、Zod の Invalid url を起こさない。
+    const parsed = publicSchema.safeParse({
       NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
       NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-      NEXT_PUBLIC_SITE_URL:
-        process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_SITE_URL,
+      NEXT_PUBLIC_SITE_URL: readSiteUrlFromProcessEnv(),
     });
+
+    if (parsed.success) {
+      cachedPublicEnv = parsed.data;
+    } else {
+      const recovered = publicSchema.safeParse({
+        NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
+        NEXT_PUBLIC_SITE_URL: PRODUCTION_APP_URL,
+      });
+      if (!recovered.success) {
+        throw recovered.error;
+      }
+      cachedPublicEnv = recovered.data;
+    }
   }
   return cachedPublicEnv;
 }
@@ -80,7 +125,7 @@ export function publicEnv(): PublicEnv {
 export function resolveAppBaseUrl(requestOrigin?: string | null): string {
   const fromEnv = firstAbsoluteUrl(
     process.env.NEXT_PUBLIC_APP_URL,
-    process.env.NEXT_PUBLIC_SITE_URL,
+    process.env.NEXT_PUBLIC_SITE_URL || PRODUCTION_APP_URL,
   );
   const fromOrigin = firstAbsoluteUrl(requestOrigin);
 

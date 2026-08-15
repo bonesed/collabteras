@@ -115,7 +115,7 @@ export async function signUp(
     password: parsed.data.password,
     options: {
       data: { full_name: parsed.data.fullName },
-      emailRedirectTo: `${publicEnv().NEXT_PUBLIC_SITE_URL}/auth/callback`,
+      emailRedirectTo: `${publicEnv().NEXT_PUBLIC_SITE_URL || 'https://collabteras.vercel.app'}/auth/callback`,
     },
   });
 

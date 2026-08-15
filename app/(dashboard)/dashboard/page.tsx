@@ -7,7 +7,6 @@ import {
 } from 'lucide-react';
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { unstable_rethrow } from 'next/navigation';
 
 import { StatCard } from '@/components/features/dashboard/stat-card';
 import { EmptyState } from '@/components/features/layout/empty-state';
@@ -17,10 +16,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { requireSessionContext } from '@/lib/auth';
 import {
+  EMPTY_DASHBOARD_SUMMARY,
   getDashboardSummary,
   type DashboardSummary,
 } from '@/lib/queries/dashboard';
-import { getOrganizationPlanSafe } from '@/lib/queries/organizations';
+import { getOrganizationPlan } from '@/lib/queries/organizations';
 import { countProposalsThisMonth, listProposals } from '@/lib/queries/proposals';
 import { countSearchJobsThisMonth } from '@/lib/queries/search-jobs';
 import type { ProposalWithCandidate } from '@/types';
@@ -31,123 +31,71 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
-const EMPTY_SUMMARY: DashboardSummary = {
-  storeCount: 0,
-  candidateCount: 0,
-  savedCandidateCount: 0,
-  draftProposalCount: 0,
-  sentProposalCount: 0,
-  agreedProposalCount: 0,
-};
-
 export default async function DashboardPage() {
-  try {
-    const { organization, profile } = await requireSessionContext();
-    const displayName = profile.full_name ?? profile.email;
+  // /settings/billing と同じ：Cookie 付き createClient → セッション → organizations.plan
+  const { organization, profile } = await requireSessionContext();
+  const { organization: latestOrganization, definition: currentPlan, limits } =
+    await getOrganizationPlan(organization.id);
 
-    const { organization: latestOrganization, definition: currentPlan, limits } =
-      await getOrganizationPlanSafe(organization.id, organization);
+  const displayName = profile.full_name ?? profile.email;
 
-    const [summary, recentProposals, searchCount, proposalCount] =
-      await Promise.all([
-        loadSummarySafely(latestOrganization.id),
-        loadRecentProposalsSafely(latestOrganization.id),
-        loadSearchCountSafely(latestOrganization.id),
-        loadProposalCountSafely(latestOrganization.id),
-      ]);
+  const [summary, recentProposals, searchCount, proposalCount] =
+    await Promise.all([
+      loadSummary(latestOrganization.id),
+      loadRecentProposals(latestOrganization.id),
+      loadSearchCount(latestOrganization.id),
+      loadProposalCount(latestOrganization.id),
+    ]);
 
-    const planName =
-      currentPlan?.name != null && currentPlan.name !== ''
-        ? currentPlan.name
-        : null;
-    const maxStores = limits?.maxStores;
-    const monthlySearches = limits?.monthlySearches;
-    const monthlyProposals = limits?.monthlyProposals;
+  return (
+    <div className="mx-auto max-w-6xl">
+      <PageHeader
+        title={`こんにちは、${displayName} さん`}
+        description="コラボ提案の進捗をまとめて確認できます。"
+        action={
+          <Button asChild>
+            <Link href="/candidates">
+              <MapPinned className="size-4" aria-hidden />
+              コラボ候補を探す
+            </Link>
+          </Button>
+        }
+      />
 
-    return (
-      <div className="mx-auto max-w-6xl">
-        <PageHeader
-          title={`こんにちは、${displayName} さん`}
-          description="コラボ提案の進捗をまとめて確認できます。"
-          action={
-            <Button asChild>
-              <Link href="/candidates">
-                <MapPinned className="size-4" aria-hidden />
-                コラボ候補を探す
-              </Link>
-            </Button>
-          }
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="登録店舗"
+          value={summary.storeCount}
+          unit="件"
+          hint={`${currentPlan.name} プランの上限 ${limits.maxStores} 件`}
+          icon={StoreIcon}
         />
-
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <StatCard
-            label="登録店舗"
-            value={summary.storeCount}
-            unit="件"
-            hint={
-              planName != null && maxStores != null
-                ? `${planName} プランの上限 ${maxStores} 件`
-                : 'プラン上限を取得できませんでした'
-            }
-            icon={StoreIcon}
-          />
-          <StatCard
-            label="コラボ候補"
-            value={summary.candidateCount}
-            unit="件"
-            hint={
-              monthlySearches != null
-                ? `今月の抽出 ${searchCount} / ${monthlySearches} 件`
-                : `今月の抽出 ${searchCount} 件`
-            }
-            icon={MapPinned}
-          />
-          <StatCard
-            label="準備中の提案"
-            value={summary.draftProposalCount}
-            unit="通"
-            hint={
-              monthlyProposals != null
-                ? `今月の生成 ${proposalCount} / ${monthlyProposals} 通`
-                : `今月の生成 ${proposalCount} 通`
-            }
-            icon={Sparkles}
-          />
-          <StatCard
-            label="送付済みの提案"
-            value={summary.sentProposalCount}
-            unit="通"
-            hint={`成立 ${summary.agreedProposalCount} 件`}
-            icon={Send}
-          />
-        </div>
-
-        <RecentProposalsCard proposals={recentProposals} />
-      </div>
-    );
-  } catch (error) {
-    unstable_rethrow(error);
-    console.error('ダッシュボードの読み込みに失敗しました', error);
-
-    return (
-      <div className="mx-auto max-w-6xl">
-        <PageHeader
-          title="ダッシュボード"
-          description="コラボ提案の進捗をまとめて確認できます。"
+        <StatCard
+          label="コラボ候補"
+          value={summary.candidateCount}
+          unit="件"
+          hint={`今月の抽出 ${searchCount} / ${limits.monthlySearches} 件`}
+          icon={MapPinned}
         />
-        <EmptyState
-          icon={Handshake}
-          title="ダッシュボードを表示できません"
-          description="データの取得に失敗しました。時間をおいて再度お試しください。"
-          action={
-            <Button asChild>
-              <Link href="/settings/billing">プランとお支払いを確認</Link>
-            </Button>
-          }
+        <StatCard
+          label="準備中の提案"
+          value={summary.draftProposalCount}
+          unit="通"
+          hint={`今月の生成 ${proposalCount} / ${limits.monthlyProposals} 通`}
+          icon={Sparkles}
+        />
+        <StatCard
+          label="送付済みの提案"
+          value={summary.sentProposalCount}
+          unit="通"
+          hint={`成立 ${summary.agreedProposalCount} 件`}
+          icon={Send}
         />
       </div>
-    );
-  }
+
+      <RecentProposalsCard proposals={recentProposals} />
+    </div>
+  );
 }
 
 function RecentProposalsCard({
@@ -202,18 +150,18 @@ function RecentProposalsCard({
   );
 }
 
-async function loadSummarySafely(
-  organizationId: string,
-): Promise<DashboardSummary> {
+/** 店舗・候補・提案が 0 件 / null でも集計失敗にしない。 */
+async function loadSummary(organizationId: string): Promise<DashboardSummary> {
   try {
-    return await getDashboardSummary(organizationId);
+    const summary = await getDashboardSummary(organizationId);
+    return summary ?? EMPTY_DASHBOARD_SUMMARY;
   } catch (error) {
     console.error('ダッシュボード集計の取得に失敗しました', error);
-    return EMPTY_SUMMARY;
+    return EMPTY_DASHBOARD_SUMMARY;
   }
 }
 
-async function loadRecentProposalsSafely(
+async function loadRecentProposals(
   organizationId: string,
 ): Promise<ProposalWithCandidate[]> {
   try {
@@ -224,18 +172,18 @@ async function loadRecentProposalsSafely(
   }
 }
 
-async function loadSearchCountSafely(organizationId: string): Promise<number> {
+async function loadSearchCount(organizationId: string): Promise<number> {
   try {
-    return await countSearchJobsThisMonth(organizationId);
+    return (await countSearchJobsThisMonth(organizationId)) ?? 0;
   } catch (error) {
     console.error('抽出回数の取得に失敗しました', error);
     return 0;
   }
 }
 
-async function loadProposalCountSafely(organizationId: string): Promise<number> {
+async function loadProposalCount(organizationId: string): Promise<number> {
   try {
-    return await countProposalsThisMonth(organizationId);
+    return (await countProposalsThisMonth(organizationId)) ?? 0;
   } catch (error) {
     console.error('提案数の取得に失敗しました', error);
     return 0;

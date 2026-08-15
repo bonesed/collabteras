@@ -4,7 +4,17 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { publicEnv } from '@/lib/env';
 import type { Database } from '@/types/database';
 
-const PUBLIC_PATHS = ['/', '/login', '/signup', '/auth', '/pricing', '/legal'];
+const PUBLIC_PATHS = [
+  '/',
+  '/login',
+  '/signup',
+  '/auth',
+  '/pricing',
+  '/legal',
+  // Stripe Webhook はセッションを持たず、署名で自身を検証する
+  '/api/webhooks',
+  '/api/stripe',
+];
 
 function isPublicPath(pathname: string): boolean {
   return PUBLIC_PATHS.some(

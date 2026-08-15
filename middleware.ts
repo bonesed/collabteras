@@ -13,6 +13,6 @@ export const config = {
      * Stripe Webhook はセッションを持たず署名で自身を検証するため、
      * ここを通すとログイン画面へ飛ばされてしまう。
      */
-    '/((?!_next/static|_next/image|favicon.ico|api/stripe|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!_next/static|_next/image|favicon.ico|api/stripe|api/webhooks|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

@@ -64,13 +64,13 @@ Gemini を使います。どちらも未設定だと相性スコアリングは�
    Price ID（`price_` で始まる ID。`prod_` ではない）を `STRIPE_PRICE_ID_LIGHT` /
    `STRIPE_PRICE_ID_STANDARD` / `STRIPE_PRICE_ID_PRO` に設定する
 2. `STRIPE_SECRET_KEY` を設定する
-3. Webhook を `/api/stripe/webhook` に向け、署名シークレットを
+3. Webhook を `/api/webhooks/stripe` に向け、署名シークレットを
    `STRIPE_WEBHOOK_SECRET` に設定する
 
 ローカルでは Stripe CLI で転送します。
 
 ```bash
-stripe listen --forward-to localhost:3000/api/stripe/webhook
+stripe listen --forward-to localhost:3000/api/webhooks/stripe
 ```
 
 購読する必要があるイベントは `checkout.session.completed` と

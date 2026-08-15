@@ -6,7 +6,7 @@ import { requireSessionContext } from '@/lib/auth';
 import { resolveAppBaseUrl } from '@/lib/env';
 import { getStripe, isStripeConfigured } from '@/lib/stripe/client';
 import { isPaidPlanTier, priceIdForPlan } from '@/lib/stripe/plans';
-import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 import type { ActionResult, MemberRole, Organization } from '@/types';
 
 /** 支払いに関わる操作は、請求責任を持つ owner / admin に限る。 */
@@ -151,8 +151,7 @@ async function ensureCustomer(
     metadata: { organization_id: organization.id },
   });
 
-  const supabase = await createClient();
-  const { error } = await supabase
+  const { error } = await createAdminClient()
     .from('organizations')
     .update({ stripe_customer_id: customer.id })
     .eq('id', organization.id);

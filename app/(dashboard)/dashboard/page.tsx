@@ -28,14 +28,19 @@ export const fetchCache = 'force-no-store';
 
 export default async function DashboardPage() {
   const { organization, profile } = await requireSessionContext();
-  const [{ definition: plan, limits }, summary, recentProposals, searchCount, proposalCount] =
-    await Promise.all([
-      getOrganizationPlan(organization.id),
-      getDashboardSummary(organization.id),
-      listProposals(organization.id, { limit: 5 }),
-      countSearchJobsThisMonth(organization.id),
-      countProposalsThisMonth(organization.id),
-    ]);
+  const [
+    { definition: currentPlan, limits },
+    summary,
+    recentProposals,
+    searchCount,
+    proposalCount,
+  ] = await Promise.all([
+    getOrganizationPlan(organization.id),
+    getDashboardSummary(organization.id),
+    listProposals(organization.id, { limit: 5 }),
+    countSearchJobsThisMonth(organization.id),
+    countProposalsThisMonth(organization.id),
+  ]);
   const displayName = profile.full_name ?? profile.email;
 
   return (
@@ -58,7 +63,7 @@ export default async function DashboardPage() {
           label="登録店舗"
           value={summary.storeCount}
           unit="件"
-          hint={`${plan.name} プランの上限 ${limits.maxStores} 件`}
+          hint={`${currentPlan.name} プランの上限 ${limits.maxStores} 件`}
           icon={StoreIcon}
         />
         <StatCard

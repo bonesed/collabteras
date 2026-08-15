@@ -29,7 +29,7 @@ const ROLE_LABELS = {
 
 export default async function SettingsPage() {
   const { organization, profile, role } = await requireSessionContext();
-  const { definition: plan } = await getOrganizationPlan(organization.id);
+  const { definition: currentPlan } = await getOrganizationPlan(organization.id);
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -60,46 +60,46 @@ export default async function SettingsPage() {
           <CardHeader>
             <CardTitle className="flex items-center justify-between text-base">
               プラン
-              <Badge variant="secondary">{plan.name}</Badge>
+              <Badge variant="secondary">{currentPlan.name}</Badge>
             </CardTitle>
-            <CardDescription>{plan.description}</CardDescription>
+            <CardDescription>{currentPlan.description}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
             <div className="flex justify-between gap-4">
               <span className="text-muted-foreground">月額</span>
               <span className="font-medium tabular-nums">
-                {formatJpy(plan.monthlyPriceJpy)}
+                {formatJpy(currentPlan.monthlyPriceJpy)}
               </span>
             </div>
             <dl className="grid gap-2 sm:grid-cols-2">
               <div className="flex justify-between gap-2 sm:block">
                 <dt className="text-muted-foreground">店舗登録</dt>
                 <dd className="font-medium tabular-nums">
-                  {plan.limits.maxStores} 件
+                  {currentPlan.limits.maxStores} 件
                 </dd>
               </div>
               <div className="flex justify-between gap-2 sm:block">
                 <dt className="text-muted-foreground">近隣抽出（月）</dt>
                 <dd className="font-medium tabular-nums">
-                  {plan.limits.monthlySearches} 件
+                  {currentPlan.limits.monthlySearches} 件
                 </dd>
               </div>
               <div className="flex justify-between gap-2 sm:block">
                 <dt className="text-muted-foreground">AI 提案文（月）</dt>
                 <dd className="font-medium tabular-nums">
-                  {plan.limits.monthlyProposals} 通
+                  {currentPlan.limits.monthlyProposals} 通
                 </dd>
               </div>
               <div className="flex justify-between gap-2 sm:block">
                 <dt className="text-muted-foreground">メンバー</dt>
                 <dd className="font-medium tabular-nums">
-                  {plan.limits.maxMembers} 人
+                  {currentPlan.limits.maxMembers} 人
                 </dd>
               </div>
               <div className="flex justify-between gap-2 sm:block">
                 <dt className="text-muted-foreground">CSV 一括出力</dt>
                 <dd className="font-medium">
-                  {plan.limits.canExportCsv ? '利用可' : 'プロプランのみ'}
+                  {currentPlan.limits.canExportCsv ? '利用可' : 'プロプランのみ'}
                 </dd>
               </div>
             </dl>

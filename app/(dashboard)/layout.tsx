@@ -16,7 +16,8 @@ export default async function DashboardLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const { profile, organization } = await requireSessionContext();
-  const { definition: plan } = await getOrganizationPlan(organization.id);
+  const { definition: currentPlan } =
+    await getOrganizationPlan(organization.id);
 
   return (
     <div className="flex min-h-dvh">
@@ -32,7 +33,7 @@ export default async function DashboardLayout({
         <div className="border-t p-4">
           <p className="text-xs text-muted-foreground">現在のプラン</p>
           <div className="mt-1 flex items-center justify-between">
-            <Badge variant="secondary">{plan.name}</Badge>
+            <Badge variant="secondary">{currentPlan.name}</Badge>
             <Link
               href="/settings/billing"
               className="text-xs font-medium text-primary hover:underline"

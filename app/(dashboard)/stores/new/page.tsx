@@ -18,7 +18,7 @@ export const fetchCache = 'force-no-store';
 
 export default async function NewStorePage() {
   const { organization } = await requireSessionContext();
-  const { organization: latestOrganization, limits, definition } =
+  const { organization: latestOrganization, definition: currentPlan, limits } =
     await getOrganizationPlan(organization.id);
   const stores = await listStores(latestOrganization.id);
   const limit = limits.maxStores;
@@ -33,7 +33,7 @@ export default async function NewStorePage() {
 
       {atLimit ? (
         <p className="mb-4 rounded-lg border bg-accent px-4 py-3 text-sm text-accent-foreground">
-          {definition.name} プランで登録できる店舗数の上限（{limit} 件）に達しています。
+          {currentPlan.name} プランで登録できる店舗数の上限（{limit} 件）に達しています。
           <Link href="/settings/billing" className="ml-1 font-medium underline">
             プランを変更する
           </Link>

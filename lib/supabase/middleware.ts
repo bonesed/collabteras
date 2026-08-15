@@ -4,19 +4,17 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { publicEnv } from '@/lib/env';
 import type { Database } from '@/types/database';
 
-const PUBLIC_PATHS = [
-  '/',
-  '/login',
-  '/signup',
-  '/auth',
-  '/pricing',
-  '/legal',
-  // Stripe Webhook はセッションを持たず、署名で自身を検証する
-  '/api/webhooks',
-  '/api/stripe',
-];
+const PUBLIC_PATHS = ['/', '/login', '/signup', '/auth', '/pricing', '/legal'];
+
+function isApiPath(pathname: string): boolean {
+  return pathname === '/api' || pathname.startsWith('/api/');
+}
 
 function isPublicPath(pathname: string): boolean {
+  if (isApiPath(pathname)) {
+    return true;
+  }
+
   return PUBLIC_PATHS.some(
     (path) => pathname === path || pathname.startsWith(`${path}/`),
   );
@@ -28,6 +26,13 @@ function isPublicPath(pathname: string): boolean {
  * ここで必ず 1 回呼ぶ。
  */
 export async function updateSession(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // /api/* は認証チェックも Cookie 更新も行わず、リダイレクトしない
+  if (isApiPath(pathname)) {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
   const env = publicEnv();
 
@@ -55,8 +60,6 @@ export async function updateSession(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const { pathname } = request.nextUrl;
 
   if (user === null && !isPublicPath(pathname)) {
     const loginUrl = request.nextUrl.clone();

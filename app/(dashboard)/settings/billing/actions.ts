@@ -1,7 +1,9 @@
 'use server';
 
+import { headers } from 'next/headers';
+
 import { requireSessionContext } from '@/lib/auth';
-import { publicEnv } from '@/lib/env';
+import { resolveAppBaseUrl } from '@/lib/env';
 import { getStripe, isStripeConfigured } from '@/lib/stripe/client';
 import { isPaidPlanTier, priceIdForPlan } from '@/lib/stripe/plans';
 import { createClient } from '@/lib/supabase/server';
@@ -39,7 +41,7 @@ export async function startCheckout(
     return { ok: false, error: 'このプランはまだ購入できません。' };
   }
 
-  const returnUrl = `${publicEnv().NEXT_PUBLIC_SITE_URL}/settings/billing`;
+  const returnUrl = await billingReturnUrl();
 
   try {
     const customerId = await ensureCustomer(organization, profile.email);
@@ -89,7 +91,7 @@ export async function openBillingPortal(): Promise<
   try {
     const session = await getStripe().billingPortal.sessions.create({
       customer: organization.stripe_customer_id,
-      return_url: `${publicEnv().NEXT_PUBLIC_SITE_URL}/settings/billing`,
+      return_url: await billingReturnUrl(),
     });
 
     return { ok: true, data: { url: session.url } };
@@ -100,6 +102,30 @@ export async function openBillingPortal(): Promise<
       error: 'お支払い情報の画面を開けませんでした。時間をおいて再度お試しください。',
     };
   }
+}
+
+/** Checkout / ポータルから戻る先。公開 URL またはリクエスト origin を使う。 */
+async function billingReturnUrl(): Promise<string> {
+  return `${resolveAppBaseUrl(await readRequestOrigin())}/settings/billing`;
+}
+
+async function readRequestOrigin(): Promise<string | null> {
+  const headerStore = await headers();
+  const origin = headerStore.get('origin');
+  if (origin !== null && origin !== '') {
+    return origin;
+  }
+
+  const host = headerStore.get('x-forwarded-host') ?? headerStore.get('host');
+  if (host === null || host === '') {
+    return null;
+  }
+
+  const proto =
+    headerStore.get('x-forwarded-proto') ??
+    (host.includes('localhost') || host.startsWith('127.') ? 'http' : 'https');
+
+  return `${proto}://${host}`;
 }
 
 /**

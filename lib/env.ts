@@ -18,10 +18,16 @@ const supabaseUrlSchema = z
   .url()
   .transform((value) => value.replace(/\/+$/, '').replace(/\/rest\/v1$/, ''));
 
+const PRODUCTION_APP_URL = 'https://collabteras.vercel.app';
+const LOCAL_APP_URL = 'http://localhost:3000';
+
 const publicSchema = z.object({
   NEXT_PUBLIC_SUPABASE_URL: supabaseUrlSchema,
   NEXT_PUBLIC_SUPABASE_ANON_KEY: z.string().min(1),
-  NEXT_PUBLIC_SITE_URL: z.string().url().default('http://localhost:3000'),
+  NEXT_PUBLIC_SITE_URL: z
+    .string()
+    .url()
+    .default(isProductionRuntime() ? PRODUCTION_APP_URL : LOCAL_APP_URL),
 });
 
 /**
@@ -59,10 +65,74 @@ export function publicEnv(): PublicEnv {
     cachedPublicEnv = publicSchema.parse({
       NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
       NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
-      NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL,
+      NEXT_PUBLIC_SITE_URL:
+        process.env.NEXT_PUBLIC_APP_URL ?? process.env.NEXT_PUBLIC_SITE_URL,
     });
   }
   return cachedPublicEnv;
+}
+
+/**
+ * Stripe Checkout など、外部サービスへ渡す絶対 URL のオリジンを決める。
+ * `NEXT_PUBLIC_APP_URL` とリクエストの origin を優先し、未設定の本番では
+ * 公開 URL にフォールバックする（localhost を返さない）。
+ */
+export function resolveAppBaseUrl(requestOrigin?: string | null): string {
+  const fromEnv = firstAbsoluteUrl(
+    process.env.NEXT_PUBLIC_APP_URL,
+    process.env.NEXT_PUBLIC_SITE_URL,
+  );
+  const fromOrigin = firstAbsoluteUrl(requestOrigin);
+
+  const candidate = fromEnv ?? fromOrigin;
+  if (candidate !== null && !(isProductionRuntime() && isLocalhostUrl(candidate))) {
+    return candidate;
+  }
+
+  if (isProductionRuntime()) {
+    return PRODUCTION_APP_URL;
+  }
+
+  return fromOrigin ?? LOCAL_APP_URL;
+}
+
+function isProductionRuntime(): boolean {
+  return (
+    process.env.VERCEL_ENV === 'production' ||
+    (process.env.NODE_ENV === 'production' && process.env.VERCEL_ENV !== 'preview')
+  );
+}
+
+function firstAbsoluteUrl(
+  ...values: Array<string | null | undefined>
+): string | null {
+  for (const value of values) {
+    if (typeof value !== 'string') {
+      continue;
+    }
+    const normalized = value.trim().replace(/\/+$/, '');
+    if (normalized === '') {
+      continue;
+    }
+    try {
+      const parsed = new URL(normalized);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        return parsed.origin;
+      }
+    } catch {
+      // 次の候補へ
+    }
+  }
+  return null;
+}
+
+function isLocalhostUrl(value: string): boolean {
+  try {
+    const { hostname } = new URL(value);
+    return hostname === 'localhost' || hostname === '127.0.0.1';
+  } catch {
+    return false;
+  }
 }
 
 export function serverEnv(): ServerEnv {

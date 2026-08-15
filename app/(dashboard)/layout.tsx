@@ -5,8 +5,8 @@ import { MobileNav } from '@/components/features/layout/mobile-nav';
 import { SidebarNav } from '@/components/features/layout/sidebar-nav';
 import { UserMenu } from '@/components/features/layout/user-menu';
 import { Badge } from '@/components/ui/badge';
-import { FALLBACK_PROFILE, getSessionContextSafe } from '@/lib/auth';
-import { getOrganizationPlanSafe } from '@/lib/queries/organizations';
+import { requireSessionContext } from '@/lib/auth';
+import { getOrganizationPlan } from '@/lib/queries/organizations';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -15,24 +15,9 @@ export const fetchCache = 'force-no-store';
 export default async function DashboardLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const session = await getSessionContextSafe();
-
-  let profile = session?.profile ?? FALLBACK_PROFILE;
-  let organizationName = session?.organization?.name ?? '';
-  let planName = '未設定';
-
-  try {
-    const organizationId = session?.organization?.id;
-    if (organizationId != null && organizationId !== '') {
-      const planView = await getOrganizationPlanSafe(
-        organizationId,
-        session?.organization,
-      );
-      planName = planView?.definition?.name ?? '未設定';
-    }
-  } catch (error) {
-    console.error('ダッシュボードレイアウトの取得に失敗しました', error);
-  }
+  const { profile, organization } = await requireSessionContext();
+  const { definition: currentPlan } =
+    await getOrganizationPlan(organization.id);
 
   return (
     <div className="flex min-h-dvh">
@@ -48,7 +33,7 @@ export default async function DashboardLayout({
         <div className="border-t p-4">
           <p className="text-xs text-muted-foreground">現在のプラン</p>
           <div className="mt-1 flex items-center justify-between">
-            <Badge variant="secondary">{planName}</Badge>
+            <Badge variant="secondary">{currentPlan.name}</Badge>
             <Link
               href="/settings/billing"
               className="text-xs font-medium text-primary hover:underline"
@@ -67,7 +52,7 @@ export default async function DashboardLayout({
               <Logo showWordmark={false} />
             </span>
           </div>
-          <UserMenu profile={profile} organizationName={organizationName} />
+          <UserMenu profile={profile} organizationName={organization.name} />
         </header>
 
         <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>

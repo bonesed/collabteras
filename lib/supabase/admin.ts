@@ -33,3 +33,20 @@ export function createAdminClient() {
     },
   );
 }
+
+/**
+ * service role が無い・環境変数の検証に失敗しても、画面を落とさない。
+ * Webhook 以外の読み取りではこちらを使う。
+ */
+export function tryCreateAdminClient() {
+  try {
+    const serviceRoleKey = serverEnv().SUPABASE_SERVICE_ROLE_KEY;
+    if (serviceRoleKey === undefined) {
+      return null;
+    }
+    return createAdminClient();
+  } catch (error) {
+    console.error('Admin クライアントを初期化できません', error);
+    return null;
+  }
+}

@@ -51,6 +51,17 @@ export function resolvePlanTier(
   throw new Error(`未知のプラン値です: ${value}`);
 }
 
+/** 画面表示用。解釈できない値を 'free' に置き換えず、null を返す。 */
+export function tryResolvePlanTier(
+  value: string | null | undefined,
+): PlanTier | null {
+  try {
+    return resolvePlanTier(value);
+  } catch {
+    return null;
+  }
+}
+
 export function getPlanDefinition(
   planValue: string | null | undefined,
 ): PlanDefinition {

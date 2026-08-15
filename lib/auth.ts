@@ -2,7 +2,7 @@ import 'server-only';
 
 import { redirect } from 'next/navigation';
 
-import { getOrganizationPlan } from '@/lib/queries/organizations';
+import { getOrganization } from '@/lib/queries/organizations';
 import { createClient } from '@/lib/supabase/server';
 import type { SessionContext } from '@/types';
 
@@ -57,8 +57,9 @@ export async function requireSessionContext(): Promise<SessionContext> {
     redirect('/onboarding');
   }
 
-  // 課金画面と同じ：Stripe 同期後の organizations.plan を都度読む。
-  const { organization } = await getOrganizationPlan(membership.organization_id);
+  // セッション確立では Stripe / service role に依存しない。
+  // プラン表示は各画面が organizations.plan を都度読む。
+  const organization = await getOrganization(membership.organization_id);
 
   return {
     profile,

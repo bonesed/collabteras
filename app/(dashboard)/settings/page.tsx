@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/card';
 import { requireSessionContext } from '@/lib/auth';
 import { formatJpy } from '@/lib/format';
-import { getOrganizationPlan } from '@/lib/queries/organizations';
+import { getOrganizationPlanSafe } from '@/lib/queries/organizations';
 
 export const metadata: Metadata = { title: '設定' };
 
@@ -29,7 +29,10 @@ const ROLE_LABELS = {
 
 export default async function SettingsPage() {
   const { organization, profile, role } = await requireSessionContext();
-  const { definition: currentPlan } = await getOrganizationPlan(organization.id);
+  const { definition: currentPlan } = await getOrganizationPlanSafe(
+    organization.id,
+    organization,
+  );
 
   return (
     <div className="mx-auto max-w-3xl">

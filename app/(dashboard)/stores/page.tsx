@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { requireSessionContext } from '@/lib/auth';
-import { getOrganizationPlan } from '@/lib/queries/organizations';
+import { getOrganizationPlanSafe } from '@/lib/queries/organizations';
 import { listStores } from '@/lib/queries/stores';
 
 export const metadata: Metadata = { title: '自店舗' };
@@ -20,7 +20,7 @@ export const fetchCache = 'force-no-store';
 export default async function StoresPage() {
   const { organization } = await requireSessionContext();
   const { organization: latestOrganization, definition: currentPlan, limits } =
-    await getOrganizationPlan(organization.id);
+    await getOrganizationPlanSafe(organization.id, organization);
   const stores = await listStores(latestOrganization.id);
   const canAddStore = stores.length < limits.maxStores;
 

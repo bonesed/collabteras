@@ -7,7 +7,7 @@ import { StoreForm } from '@/components/features/stores/store-form';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { requireSessionContext } from '@/lib/auth';
-import { getOrganizationPlan } from '@/lib/queries/organizations';
+import { getOrganizationPlanSafe } from '@/lib/queries/organizations';
 import { listStores } from '@/lib/queries/stores';
 
 export const metadata: Metadata = { title: '店舗を追加' };
@@ -19,7 +19,7 @@ export const fetchCache = 'force-no-store';
 export default async function NewStorePage() {
   const { organization } = await requireSessionContext();
   const { organization: latestOrganization, definition: currentPlan, limits } =
-    await getOrganizationPlan(organization.id);
+    await getOrganizationPlanSafe(organization.id, organization);
   const stores = await listStores(latestOrganization.id);
   const limit = limits.maxStores;
   const atLimit = stores.length >= limit;

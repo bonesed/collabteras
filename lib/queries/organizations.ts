@@ -59,8 +59,21 @@ function unresolvedPlanView(organization: Organization): OrganizationPlanView {
 }
 
 function toOrganization(row: Organization): Organization {
-  const plan = tryResolvePlanTier(row.plan);
+  const plan = tryResolvePlanTier(row?.plan);
   return plan === null ? row : { ...row, plan };
+}
+
+function emptyOrganization(organizationId: string): Organization {
+  return {
+    id: organizationId,
+    name: '',
+    plan: 'free',
+    stripe_customer_id: null,
+    stripe_subscription_id: null,
+    current_period_end: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
 }
 
 /**
@@ -70,21 +83,27 @@ function toOrganization(row: Organization): Organization {
 async function fetchOrganizationViaUser(
   organizationId: string,
 ): Promise<Organization | null> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('organizations')
-    .select(ORGANIZATION_COLUMNS)
-    .eq('id', organizationId)
-    .maybeSingle();
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from('organizations')
+      .select(ORGANIZATION_COLUMNS)
+      .eq('id', organizationId)
+      .maybeSingle();
 
-  if (error !== null) {
-    throw new Error(`組織の取得に失敗しました: ${error.message}`);
-  }
-  if (data === null) {
+    if (error != null) {
+      console.error('組織の取得に失敗しました', error);
+      return null;
+    }
+    if (data == null) {
+      return null;
+    }
+
+    return toOrganization(data);
+  } catch (error) {
+    console.error('組織の取得に失敗しました', error);
     return null;
   }
-
-  return toOrganization(data);
 }
 
 /**
@@ -94,26 +113,31 @@ async function fetchOrganizationViaUser(
 async function fetchOrganizationViaAdmin(
   organizationId: string,
 ): Promise<Organization | null> {
-  const admin = tryCreateAdminClient();
-  if (admin === null) {
-    return null;
-  }
+  try {
+    const admin = tryCreateAdminClient();
+    if (admin === null) {
+      return null;
+    }
 
-  const { data, error } = await admin
-    .from('organizations')
-    .select(ORGANIZATION_COLUMNS)
-    .eq('id', organizationId)
-    .maybeSingle();
+    const { data, error } = await admin
+      .from('organizations')
+      .select(ORGANIZATION_COLUMNS)
+      .eq('id', organizationId)
+      .maybeSingle();
 
-  if (error !== null) {
+    if (error != null) {
+      console.error('admin での組織取得に失敗しました', error);
+      return null;
+    }
+    if (data == null) {
+      return null;
+    }
+
+    return toOrganization(data);
+  } catch (error) {
     console.error('admin での組織取得に失敗しました', error);
     return null;
   }
-  if (data === null) {
-    return null;
-  }
-
-  return toOrganization(data);
 }
 
 /**
@@ -123,21 +147,24 @@ async function fetchOrganizationViaAdmin(
  */
 async function fetchOrganizationRow(
   organizationId: string,
-): Promise<Organization> {
-  noStore();
-  await connection();
+): Promise<Organization | null> {
+  try {
+    noStore();
+  } catch (error) {
+    console.error('noStore() に失敗しました', error);
+  }
+  try {
+    await connection();
+  } catch (error) {
+    console.error('connection() に失敗しました', error);
+  }
 
   const fromAdmin = await fetchOrganizationViaAdmin(organizationId);
-  if (fromAdmin !== null) {
+  if (fromAdmin != null) {
     return fromAdmin;
   }
 
-  const fromUser = await fetchOrganizationViaUser(organizationId);
-  if (fromUser === null) {
-    throw new Error('組織が見つかりませんでした。');
-  }
-
-  return fromUser;
+  return fetchOrganizationViaUser(organizationId);
 }
 
 /**
@@ -147,7 +174,11 @@ async function fetchOrganizationRow(
 export async function getOrganization(
   organizationId: string,
 ): Promise<Organization> {
-  return fetchOrganizationRow(organizationId);
+  const organization = await fetchOrganizationRow(organizationId);
+  if (organization == null) {
+    throw new Error('組織が見つかりませんでした。');
+  }
+  return organization;
 }
 
 /**
@@ -158,6 +189,9 @@ export async function selectOrganizationPlan(
   organizationId: string,
 ): Promise<PlanTier> {
   const organization = await fetchOrganizationRow(organizationId);
+  if (organization == null) {
+    throw new Error('組織が見つかりませんでした。');
+  }
   const plan = tryResolvePlanTier(organization.plan);
   if (plan === null) {
     throw new Error(`未知のプラン値です: ${organization.plan}`);
@@ -172,7 +206,7 @@ export async function selectOrganizationPlan(
 const syncPlanFromStripe = cache(async (organizationId: string) => {
   try {
     const organization = await fetchOrganizationRow(organizationId);
-    if (organization.stripe_customer_id === null) {
+    if (organization?.stripe_customer_id == null) {
       return;
     }
     if (tryCreateAdminClient() === null) {
@@ -195,17 +229,34 @@ const syncPlanFromStripe = cache(async (organizationId: string) => {
 export async function getOrganizationPlan(
   organizationId: string,
 ): Promise<OrganizationPlanView> {
-  noStore();
-  await connection();
+  try {
+    try {
+      noStore();
+    } catch (error) {
+      console.error('noStore() に失敗しました', error);
+    }
+    try {
+      await connection();
+    } catch (error) {
+      console.error('connection() に失敗しました', error);
+    }
 
-  await syncPlanFromStripe(organizationId);
-  const organization = await fetchOrganizationRow(organizationId);
-  const plan = tryResolvePlanTier(organization.plan);
-  if (plan === null) {
-    throw new Error(`未知のプラン値です: ${organization.plan}`);
+    await syncPlanFromStripe(organizationId);
+    const organization = await fetchOrganizationRow(organizationId);
+    if (organization == null) {
+      return unresolvedPlanView(emptyOrganization(organizationId));
+    }
+    const plan = tryResolvePlanTier(organization.plan);
+    if (plan === null) {
+      console.error(`未知のプラン値です: ${organization.plan}`);
+      return unresolvedPlanView(organization);
+    }
+
+    return planViewFromTier(organization, plan);
+  } catch (error) {
+    console.error('組織プランの取得に失敗しました', error);
+    return unresolvedPlanView(emptyOrganization(organizationId));
   }
-
-  return planViewFromTier(organization, plan);
 }
 
 /**
@@ -244,5 +295,5 @@ export async function getOrganizationPlanSafe(
     return unresolvedPlanView(fallback);
   }
 
-  throw new Error('組織プランを取得できませんでした。');
+  return unresolvedPlanView(emptyOrganization(organizationId));
 }

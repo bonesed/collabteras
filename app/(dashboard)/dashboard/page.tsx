@@ -14,16 +14,16 @@ import { PageHeader } from '@/components/features/layout/page-header';
 import { ProposalStatusBadge } from '@/components/features/proposals/proposal-status-badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { requireSessionContext } from '@/lib/auth';
+import { getSessionContextSafe } from '@/lib/auth';
 import {
   EMPTY_DASHBOARD_SUMMARY,
   getDashboardSummary,
   type DashboardSummary,
 } from '@/lib/queries/dashboard';
-import { getOrganizationPlan } from '@/lib/queries/organizations';
+import { getOrganizationPlanSafe } from '@/lib/queries/organizations';
 import { countProposalsThisMonth, listProposals } from '@/lib/queries/proposals';
 import { countSearchJobsThisMonth } from '@/lib/queries/search-jobs';
-import type { ProposalWithCandidate } from '@/types';
+import type { PlanLimits, ProposalWithCandidate } from '@/types';
 
 export const metadata: Metadata = { title: 'ダッシュボード' };
 
@@ -31,22 +31,96 @@ export const dynamic = 'force-dynamic';
 export const revalidate = 0;
 export const fetchCache = 'force-no-store';
 
+const EMPTY_LIMITS: PlanLimits = {
+  maxStores: 0,
+  monthlySearches: 0,
+  monthlyProposals: 0,
+  maxMembers: 0,
+  canExportCsv: false,
+};
+
 export default async function DashboardPage() {
-  // /settings/billing と同じ：Cookie 付き createClient → セッション → organizations.plan
-  const { organization, profile } = await requireSessionContext();
-  const { organization: latestOrganization, definition: currentPlan, limits } =
-    await getOrganizationPlan(organization.id);
+  const session = await getSessionContextSafe();
 
-  const displayName = profile.full_name ?? profile.email;
+  try {
+    const organization = session?.organization;
+    const profile = session?.profile;
+    const organizationId = organization?.id;
+    const displayName = profile?.full_name ?? profile?.email ?? 'ゲスト';
 
-  const [summary, recentProposals, searchCount, proposalCount] =
-    await Promise.all([
-      loadSummary(latestOrganization.id),
-      loadRecentProposals(latestOrganization.id),
-      loadSearchCount(latestOrganization.id),
-      loadProposalCount(latestOrganization.id),
-    ]);
+    let planName = '未設定';
+    let limits = EMPTY_LIMITS;
+    let loadFailed = session == null || organizationId == null || organizationId === '';
 
+    if (organizationId != null && organizationId !== '') {
+      try {
+        const planView = await getOrganizationPlanSafe(organizationId, organization);
+        planName = planView?.definition?.name ?? '未設定';
+        limits = planView?.limits ?? EMPTY_LIMITS;
+      } catch (error) {
+        console.error('ダッシュボードのプラン取得に失敗しました', error);
+        loadFailed = true;
+      }
+    }
+
+    const [summary, recentProposals, searchCount, proposalCount] =
+      organizationId != null && organizationId !== ''
+        ? await Promise.all([
+            loadSummary(organizationId),
+            loadRecentProposals(organizationId),
+            loadSearchCount(organizationId),
+            loadProposalCount(organizationId),
+          ])
+        : [EMPTY_DASHBOARD_SUMMARY, [] as ProposalWithCandidate[], 0, 0];
+
+    return (
+      <DashboardView
+        displayName={displayName}
+        planName={planName}
+        limits={limits}
+        summary={summary ?? EMPTY_DASHBOARD_SUMMARY}
+        recentProposals={recentProposals ?? []}
+        searchCount={searchCount ?? 0}
+        proposalCount={proposalCount ?? 0}
+        loadFailed={loadFailed}
+      />
+    );
+  } catch (error) {
+    console.error('ダッシュボードの表示に失敗しました', error);
+    return (
+      <DashboardView
+        displayName="ゲスト"
+        planName="未設定"
+        limits={EMPTY_LIMITS}
+        summary={EMPTY_DASHBOARD_SUMMARY}
+        recentProposals={[]}
+        searchCount={0}
+        proposalCount={0}
+        loadFailed
+      />
+    );
+  }
+}
+
+function DashboardView({
+  displayName,
+  planName,
+  limits,
+  summary,
+  recentProposals,
+  searchCount,
+  proposalCount,
+  loadFailed,
+}: {
+  displayName: string;
+  planName: string;
+  limits: PlanLimits;
+  summary: DashboardSummary;
+  recentProposals: ProposalWithCandidate[];
+  searchCount: number;
+  proposalCount: number;
+  loadFailed: boolean;
+}) {
   return (
     <div className="mx-auto max-w-6xl">
       <PageHeader
@@ -62,38 +136,44 @@ export default async function DashboardPage() {
         }
       />
 
+      {loadFailed ? (
+        <p className="mb-4 rounded-lg border bg-accent px-4 py-3 text-sm text-accent-foreground">
+          データの取得に失敗しましたが、プランは{planName}です。画面は引き続き利用できます。
+        </p>
+      ) : null}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="登録店舗"
-          value={summary.storeCount}
+          value={summary?.storeCount ?? 0}
           unit="件"
-          hint={`${currentPlan.name} プランの上限 ${limits.maxStores} 件`}
+          hint={`${planName} プランの上限 ${limits?.maxStores ?? 0} 件`}
           icon={StoreIcon}
         />
         <StatCard
           label="コラボ候補"
-          value={summary.candidateCount}
+          value={summary?.candidateCount ?? 0}
           unit="件"
-          hint={`今月の抽出 ${searchCount} / ${limits.monthlySearches} 件`}
+          hint={`今月の抽出 ${searchCount ?? 0} / ${limits?.monthlySearches ?? 0} 件`}
           icon={MapPinned}
         />
         <StatCard
           label="準備中の提案"
-          value={summary.draftProposalCount}
+          value={summary?.draftProposalCount ?? 0}
           unit="通"
-          hint={`今月の生成 ${proposalCount} / ${limits.monthlyProposals} 通`}
+          hint={`今月の生成 ${proposalCount ?? 0} / ${limits?.monthlyProposals ?? 0} 通`}
           icon={Sparkles}
         />
         <StatCard
           label="送付済みの提案"
-          value={summary.sentProposalCount}
+          value={summary?.sentProposalCount ?? 0}
           unit="通"
-          hint={`成立 ${summary.agreedProposalCount} 件`}
+          hint={`成立 ${summary?.agreedProposalCount ?? 0} 件`}
           icon={Send}
         />
       </div>
 
-      <RecentProposalsCard proposals={recentProposals} />
+      <RecentProposalsCard proposals={recentProposals ?? []} />
     </div>
   );
 }
@@ -103,6 +183,8 @@ function RecentProposalsCard({
 }: {
   proposals: ProposalWithCandidate[];
 }) {
+  const items = proposals ?? [];
+
   return (
     <Card className="mt-6">
       <CardHeader className="flex-row items-center justify-between space-y-0">
@@ -112,7 +194,7 @@ function RecentProposalsCard({
         </Button>
       </CardHeader>
       <CardContent>
-        {proposals.length === 0 ? (
+        {items.length === 0 ? (
           <EmptyState
             icon={Handshake}
             title="まだ提案がありません"
@@ -125,21 +207,23 @@ function RecentProposalsCard({
           />
         ) : (
           <ul className="divide-y">
-            {proposals.map((proposal) => (
-              <li key={proposal.id}>
+            {items.map((proposal) => (
+              <li key={proposal?.id ?? proposal?.subject}>
                 <Link
-                  href={`/proposals/${proposal.id}`}
+                  href={`/proposals/${proposal?.id ?? ''}`}
                   className="flex items-center justify-between gap-4 py-3 transition-colors hover:text-primary"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">
-                      {proposal.subject}
+                      {proposal?.subject ?? '件名なし'}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {proposal.candidate?.name ?? '候補名なし'}
+                      {proposal?.candidate?.name ?? '候補名なし'}
                     </p>
                   </div>
-                  <ProposalStatusBadge status={proposal.status} />
+                  {proposal?.status != null ? (
+                    <ProposalStatusBadge status={proposal.status} />
+                  ) : null}
                 </Link>
               </li>
             ))}

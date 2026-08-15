@@ -25,11 +25,18 @@ export const requireSessionContext = cache(async function requireSessionContext(
     redirect('/login');
   }
 
-  const { data: profile, error: profileError } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .maybeSingle();
+  const [profileResult, membershipResult] = await Promise.all([
+    supabase.from('profiles').select('*').eq('id', user.id).maybeSingle(),
+    supabase
+      .from('organization_members')
+      .select('role, organization_id')
+      .eq('user_id', user.id)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+
+  const { data: profile, error: profileError } = profileResult;
 
   // ここで /login に送ると、ログイン済みの middleware に押し戻されて往復する。
   // プロフィールが引けないのは設定不備なので、原因が分かる形で落とす。
@@ -43,13 +50,7 @@ export const requireSessionContext = cache(async function requireSessionContext(
     );
   }
 
-  const { data: membership, error: membershipError } = await supabase
-    .from('organization_members')
-    .select('role, organization_id')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: true })
-    .limit(1)
-    .maybeSingle();
+  const { data: membership, error: membershipError } = membershipResult;
 
   if (membershipError !== null) {
     throw new Error(`所属組織の取得に失敗しました: ${membershipError.message}`);

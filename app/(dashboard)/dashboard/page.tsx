@@ -15,8 +15,8 @@ import { ProposalStatusBadge } from '@/components/features/proposals/proposal-st
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { requireSessionContext } from '@/lib/auth';
+import { getPlanDefinition, getPlanLimits } from '@/lib/plans';
 import { getDashboardSummary } from '@/lib/queries/dashboard';
-import { getOrganizationPlan } from '@/lib/queries/organizations';
 import { countProposalsThisMonth, listProposals } from '@/lib/queries/proposals';
 import { countSearchJobsThisMonth } from '@/lib/queries/search-jobs';
 
@@ -28,19 +28,15 @@ export const fetchCache = 'force-no-store';
 
 export default async function DashboardPage() {
   const { organization, profile } = await requireSessionContext();
-  const [
-    { definition: currentPlan, limits },
-    summary,
-    recentProposals,
-    searchCount,
-    proposalCount,
-  ] = await Promise.all([
-    getOrganizationPlan(organization.id),
-    getDashboardSummary(organization.id),
-    listProposals(organization.id, { limit: 5 }),
-    countSearchJobsThisMonth(organization.id),
-    countProposalsThisMonth(organization.id),
-  ]);
+  const [summary, recentProposals, searchCount, proposalCount] =
+    await Promise.all([
+      getDashboardSummary(organization.id),
+      listProposals(organization.id, { limit: 5 }),
+      countSearchJobsThisMonth(organization.id),
+      countProposalsThisMonth(organization.id),
+    ]);
+  const currentPlan = getPlanDefinition(organization.plan);
+  const limits = getPlanLimits(organization.plan);
   const displayName = profile.full_name ?? profile.email;
 
   return (

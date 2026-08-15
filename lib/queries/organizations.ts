@@ -9,7 +9,6 @@ import {
   getPlanLimits,
   resolvePlanTier,
 } from '@/lib/plans';
-import { reconcileOrganizationSubscription } from '@/lib/stripe/subscription';
 import { tryCreateAdminClient } from '@/lib/supabase/admin';
 import { createClient } from '@/lib/supabase/server';
 import type { Organization, PlanDefinition, PlanLimits, PlanTier } from '@/types';
@@ -93,8 +92,9 @@ async function fetchOrganizationViaAdmin(
  * organizations.plan の読み取り口。
  * 1. 可能なら service role（Webhook と同じ最新行）
  * 2. だめならログインユーザー権限の SELECT
+ * 同一リクエスト内の layout / page から複数回呼ばれるため cache する。
  */
-async function fetchOrganizationRow(
+const fetchOrganizationRow = cache(async function fetchOrganizationRow(
   organizationId: string,
 ): Promise<Organization> {
   noStore();
@@ -106,7 +106,7 @@ async function fetchOrganizationRow(
   }
 
   return fetchOrganizationViaUser(organizationId);
-}
+});
 
 /**
  * 契約プランの唯一の読み取り口。
@@ -130,39 +130,14 @@ export async function selectOrganizationPlan(
 }
 
 /**
- * Stripe への問い合わせはリクエスト内で 1 回にまとめる。
- * 失敗しても画面は落とさない。free への引き下げもしない。
- */
-const syncPlanFromStripe = cache(async (organizationId: string) => {
-  const organization = await fetchOrganizationRow(organizationId);
-  if (organization.stripe_customer_id === null) {
-    return;
-  }
-  if (tryCreateAdminClient() === null) {
-    return;
-  }
-
-  try {
-    await reconcileOrganizationSubscription(organizationId, undefined, {
-      allowDowngrade: false,
-    });
-  } catch (error) {
-    console.error('プラン同期に失敗しました', error);
-  }
-});
-
-/**
- * 課金画面と同じ手順でプランを確定する。
- * 1. Stripe 顧客がいれば契約を organizations.plan に反映（free への引き下げはしない）
- * 2. 反映後の organizations.plan を読み直す
+ * 契約プランの読み取り口。
+ * Stripe Webhook が更新する `organizations.plan` を DB から都度読む。
+ * 画面表示では Stripe API を呼ばない（Vercel の実行時間制限を超えるため）。
  */
 export async function getOrganizationPlan(
   organizationId: string,
 ): Promise<OrganizationPlanView> {
   noStore();
-  await connection();
-
-  await syncPlanFromStripe(organizationId);
   const organization = await fetchOrganizationRow(organizationId);
   return planViewFromOrganization(organization);
 }

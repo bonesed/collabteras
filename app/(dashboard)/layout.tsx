@@ -6,7 +6,7 @@ import { SidebarNav } from '@/components/features/layout/sidebar-nav';
 import { UserMenu } from '@/components/features/layout/user-menu';
 import { Badge } from '@/components/ui/badge';
 import { requireSessionContext } from '@/lib/auth';
-import { getOrganizationPlan } from '@/lib/queries/organizations';
+import { getPlanDefinition } from '@/lib/plans';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -16,8 +16,7 @@ export default async function DashboardLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const { profile, organization } = await requireSessionContext();
-  const { definition: currentPlan } =
-    await getOrganizationPlan(organization.id);
+  const currentPlan = getPlanDefinition(organization.plan);
 
   return (
     <div className="flex min-h-dvh">
